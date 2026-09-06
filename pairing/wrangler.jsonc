@@ -16,5 +16,29 @@
   // and the recommended one on any plan.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PairSession"] }],
 
+  // Rate limits. See src/limits.js for what each key is and why the ceilings sit
+  // where they do. Trailing comments are not allowed in this file: with-route.mjs
+  // strips whole-line // comments only, and a trailing one would break the parse.
+  //
+  // A namespace_id is account-wide, so two bindings sharing one share a counter.
+  // These three are distinct because they count three different things.
+  "ratelimits": [
+    {
+      "name": "RL_CREATE",
+      "namespace_id": "1001",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "RL_LOOKUP",
+      "namespace_id": "1002",
+      "simple": { "limit": 20, "period": 60 }
+    },
+    {
+      "name": "RL_CODE",
+      "namespace_id": "1003",
+      "simple": { "limit": 30, "period": 60 }
+    }
+  ],
+
   "observability": { "enabled": true }
 }

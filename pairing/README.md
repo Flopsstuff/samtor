@@ -67,6 +67,7 @@ while the legitimate device is connected.
 src/index.js             routing, session creation, schema validation, code generation
 src/session.js           Durable Object — one per session, addressed by its code
 src/page.js              the page the other device opens, served inline by the Worker
+src/limits.js            rate limiting policy — which key counts what, and why
 client/remote-config.js  the TV-side client, copied into each application
 client/qrcode.js         QR encoder (MIT, vendored — see THIRD_PARTY_NOTICES.md)
 client/install.sh        copies both into an application directory
@@ -215,16 +216,96 @@ ciphertext once end-to-end encryption lands (see **Still to do**). Never a priva
 | Threat | Response |
 |---|---|
 | Someone photographs the code off the screen | An unclaimed code expires in 2 minutes, and once a device is linked a second is refused. An attacker can only submit their own values, never read the user's |
-| Brute-forcing the code | 40 bits of entropy, 2-minute TTL, at most 5 submit attempts per session |
+| Brute-forcing the code | 40 bits of entropy, 2-minute TTL, at most 5 submit attempts per session, and a per-IP ceiling on how fast codes can be tried at all |
+| A script hammering the service | Rate limits, below |
 | A malicious or compromised relay | End-to-end encryption is designed in: the TV's public key travels inside the QR fragment, which browsers never send to a server, so on that path the relay is structurally unable to derive the key |
 | Replay | A session carries state; delivery is counted and the socket is the only live path |
 | Log leakage | Request bodies, fragments and submit tokens are never logged |
 
-Known gap: there is no per-IP rate limiting on code resolution or on `/submit`. Attempt caps
-and a two-minute TTL make brute force impractical against any one session, but nothing stops
-a script hammering the endpoint. Worth adding if this is ever used by anyone but its author.
-
 Nothing survives session expiry.
+
+### Rate limits
+
+Three ceilings, using the [Workers rate limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+The numbers live in `wrangler.jsonc`, the reasoning in `src/limits.js`.
+
+| Binding | Key | Limit | What it stops |
+|---|---|---|---|
+| `RL_CREATE` | caller IP | 10 / min | Claiming Durable Objects in bulk |
+| `RL_LOOKUP` | caller IP | 20 / min | One script walking the code space |
+| `RL_CODE` | the code | 30 / min | Many callers hammering one code read off a screen |
+
+Two keys because there are two abuses: an enumerator never trips the per-code limit, since
+every guess is a different code, and a mob attacking one session never trips the per-IP one.
+A refusal is `429` with `Retry-After: 60`, not a dead session. Malformed codes are rejected
+before any of this, so they cost nothing and consume no allowance.
+
+Cloudflare's own guidance is that an IP makes a poor identity — a mobile network can share
+one. It is the only identity available here: the caller is anonymous by design. So the
+ceilings sit far above what configuring a TV produces (a phone spends about three requests
+on a whole session) and being refused is recoverable.
+
+Inside an established socket there is no edge left to check, so the Durable Object counts
+for itself: at most 50 delivered values per session, and a socket sending more than 60
+messages in 10 seconds is closed. Both are far above what a person filling in a form does.
+
+**How exact these are, measured.** The binding is documented as permissive and eventually
+consistent — counters live on the machine the Worker runs on and reconcile asynchronously
+with a per-location store — and that is not a footnote, it is the dominant behaviour:
+
+| Traffic | Result |
+|---|---|
+| 30 lookups on one reused connection, one per second | exactly 20 through, then `rate_limited` |
+| 30 lookups over 30 separate connections, 0.8 s apart | all 30 through — nothing refused |
+| 12 session creations, separate connections, as fast as possible | all 12 through, against a limit of 10 |
+
+Separate connections land on different machines in the same location, and a short burst
+finishes before their caches agree. So these limits are exact against sustained traffic and
+loose against a spread burst — a brake on a script that keeps going, not a gate. Do not read
+the numbers in the table above as guarantees.
+
+The edge rule is the opposite shape: it counted the same spread-out connections precisely and
+blocked on the 21st. That is the argument for having both, and it only became visible by
+measuring rather than by reading either set of docs.
+
+### The wall in front of the Worker
+
+None of the above saves a request. A `429` from the Worker has already reached the Worker
+and already counted against the free plan's 100,000 a day. What those limits save is
+everything downstream — object wake-ups, stored bytes, wall-clock duration — and they take
+the brute-force oracle away from a script.
+
+Only a rule that runs *before* the Worker protects the request count, so there is also a WAF
+[rate limiting rule](https://developers.cloudflare.com/waf/rate-limiting-rules/) on the zone:
+
+```
+expression:      http.host eq "<the pairing host>"
+                 and starts_with(http.request.uri.path, "/api/session")
+characteristics: cf.colo.id, ip.src
+rate:            20 / 10 s          action: Block for 10 s
+```
+
+That is account configuration rather than anything this repository deploys, so it is not in
+the workflow and the real values are not here either.
+
+The free tier is a blunt instrument and it is worth knowing its exact shape before changing
+anything: **one** rule for the whole zone, expression fields limited to **path**, counting by
+**IP** only, a fixed **10-second** window and a fixed 10-second block. It also only applies
+on the custom domain — a zone setting cannot see traffic to `workers.dev`.
+
+The host filter is the part to be careful with. One rule covers an entire zone, and a zone
+usually holds more than this service; the documented free tier matches on path alone, which
+would have caught every other site sharing it. The API accepts `http.host` regardless. Do not
+take that on trust — it was checked from both sides, the pairing host blocking on the 21st
+request and a sibling hostname taking 26 requests to the same path untouched.
+
+So the edge rule and the three shaped limits are complements. The free WAF tier cannot
+express per-code counting — that needs Business — and no edge rule can see a message inside
+an already-open socket.
+
+Handy for testing either layer: `/api/session/AAAA/meta` is rejected as a malformed code
+before the Worker consults any limiter of its own, so a `429` on that path can only have come
+from the edge. Its body says `error code: 1015`.
 
 ## Measured on the device
 
@@ -324,13 +405,21 @@ Then open `http://localhost:8787/t#<CODE>` in a browser for the form.
 
 ```bash
 node ../tests/test_pairing_page.mjs
+node ../tests/test_pairing_limits.mjs
 ```
 
 The page ships inside a template literal, so its source and what a browser receives are
 not the same text — a backslash there is an escape sequence, and `\/` in a regular
 expression collapses to `/`. That once shipped a page whose entire script failed to
 parse while a check of the source found nothing wrong. This test renders the page and
-parses what the browser would actually get. The deploy workflow runs it first.
+parses what the browser would actually get.
+
+The second checks the rate limits, and mostly checks for drift: a binding renamed on one
+side and not the other. That failure is silent by construction — `env.RL_MISSING` is simply
+`undefined`, and `allow()` waves everything through on purpose rather than refusing everyone
+— so nothing would go red until somebody went looking for a limit that was never enforced.
+
+The deploy workflow runs both before it deploys.
 
 ## Deployment
 

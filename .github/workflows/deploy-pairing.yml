@@ -30,6 +30,12 @@ jobs:
         working-directory: pairing
         run: node ../tests/test_pairing_page.mjs
 
+      # A rate limit binding that is declared on one side only fails silently:
+      # env.RL_MISSING is undefined and the code deliberately fails open.
+      - name: Check the rate limits
+        working-directory: pairing
+        run: node ../tests/test_pairing_limits.mjs
+
       - name: Build the deploy config
         working-directory: pairing
         env:

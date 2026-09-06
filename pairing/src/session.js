@@ -10,9 +10,24 @@ import { DurableObject } from "cloudflare:workers";
 const UNCLAIMED_TTL_MS = 120_000;   // waiting for a phone to appear
 const GRACE_MS = 120_000;           // after the phone drops, allow a reconnect
 const HARD_CAP_MS = 60 * 60_000;    // nothing lives past this, connected or not
-const MAX_SUBMITS = 5;
+const MAX_SUBMITS = 5;              // one-shot HTTP path
+// The live socket is meant to be used more than once, so it gets a ceiling
+// rather than a cap of one — high enough that correcting a mistyped token a
+// dozen times is fine, low enough that a linked phone cannot write to this
+// object forever. The per-IP limits in limits.js never see these, because the
+// socket is already open by then.
+const MAX_DELIVERIES = 50;
+// A message flood keeps this object resident and burns duration allowance, so
+// the socket sending one gets closed. Legitimate traffic is a ping every 30 s
+// plus the occasional value.
+const MSG_WINDOW_MS = 10_000;
+const MAX_MSGS_PER_WINDOW = 60;
 
 export class PairSession extends DurableObject {
+  // Deliberately in memory, not storage: if this object got to hibernate the
+  // flood is over, and starting the count again is the right answer.
+  #window = { since: 0, count: 0 };
+
   /** Claim this code. Returns null if it is already taken. */
   async create(tvPublicKey, config) {
     if (await this.ctx.storage.get("state")) return null;
@@ -132,6 +147,13 @@ export class PairSession extends DurableObject {
   }
 
   async webSocketMessage(ws, message) {
+    const now = Date.now();
+    if (now - this.#window.since > MSG_WINDOW_MS) this.#window = { since: now, count: 0 };
+    if (++this.#window.count > MAX_MSGS_PER_WINDOW) {
+      try { ws.close(1008, "too many messages"); } catch (e) { /* already gone */ }
+      return;
+    }
+
     if (message === "ping") { ws.send("pong"); return; }   // keeps idle sockets alive
     if (!this.ctx.getTags(ws).includes("phone")) return;   // only the phone sends values
 
@@ -180,6 +202,8 @@ export class PairSession extends DurableObject {
 
   async #deliver(payload) {
     const deliveries = ((await this.ctx.storage.get("deliveries")) || 0) + 1;
+    // Refused without writing, so the counter stops here instead of climbing.
+    if (deliveries > MAX_DELIVERIES) return { ok: false, error: "too_many_values" };
     await this.ctx.storage.put({ payload, deliveries, state: "linked" });
     this.#send("tv", { type: "payload", payload, seq: deliveries });
     return { ok: true, deliveries, tv_online: this.ctx.getWebSockets("tv").length > 0 };

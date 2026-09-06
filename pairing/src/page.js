@@ -302,6 +302,7 @@ export const PAGE = `<!DOCTYPE html>
     return fetch("/api/session/" + c + "/meta")
       .then(function (r) { return r.json(); })
       .then(function (m) {
+        if (m.error) throw new Error(explain(m.error));
         if (m.state === "unknown") throw new Error("That code is not valid any more.");
         session = c;
         var cfg = m.config;
@@ -341,9 +342,10 @@ export const PAGE = `<!DOCTYPE html>
       if (m.type === "linked") {
         setLink("on", m.tv_online ? "linked to the TV" : "linked, waiting for the TV");
       } else if (m.type === "ack") {
+        $("send").disabled = false;
+        if (m.ok === false) { say($("sendErr"), explain(m.error)); return; }
         sent++;
         logLine("sent #" + m.deliveries + (m.tv_online ? " — delivered" : " — TV is offline"));
-        $("send").disabled = false;
       } else if (m.type === "expired") {
         setLink("off", "the session expired");
       }
@@ -400,6 +402,8 @@ export const PAGE = `<!DOCTYPE html>
       no_such_session: "This code is no longer valid.",
       already_delivered: "This code has already been used.",
       too_many_attempts: "Too many attempts. Start again on the TV.",
+      too_many_values: "This session has taken all the values it will accept. Start again on the TV.",
+      rate_limited: "Too many requests from this network. Wait a minute and try again.",
       bad_token: "This link is not valid for that code.",
       empty_payload: "Nothing to send."
     }[code] || ("Something went wrong (" + code + ").");

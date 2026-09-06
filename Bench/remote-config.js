@@ -172,7 +172,13 @@
     })
       .then(function (r) {
         return r.json().then(function (body) {
-          if (!r.ok) throw new Error(body.error || ("HTTP " + r.status));
+          if (!r.ok) {
+            // 429 is the one refusal a person can do something about, so it says
+            // what to do instead of showing them a wire-level error code.
+            throw new Error(r.status === 429
+              ? "too many attempts — wait a minute and try again"
+              : (body.error || ("HTTP " + r.status)));
+          }
           return body;
         });
       })

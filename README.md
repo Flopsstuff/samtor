@@ -257,7 +257,8 @@ a phone cannot hand it anything over Bluetooth.
 a rendezvous point that both sides reach outbound. The application shows a QR and an
 eight-character code; the user opens that on a phone or a laptop, fills in a form,
 and the values arrive over a WebSocket that stays open — so they can be corrected and
-resent without starting again.
+resent without starting again. Codes are short-lived, single-device and rate limited;
+what that buys and what it does not is written down in the security model.
 
 An application only describes what it needs:
 

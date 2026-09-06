@@ -1,5 +1,6 @@
 import { PairSession } from "./session.js";
 import { PAGE } from "./page.js";
+import { allow, clientKey } from "./limits.js";
 
 export { PairSession };
 
@@ -15,12 +16,16 @@ export default {
 
     if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
 
+    const caller = clientKey(request);
+
     // The hostname is never hardcoded: whatever host the request arrived on is
     // what the TV will be told to display.
     if (path === "/" || path === "/t") return html(PAGE);
     if (path === "/health") return json({ ok: true, service: "samtor-pair" });
 
     if (path === "/api/session" && request.method === "POST") {
+      // Each of these claims a Durable Object, writes storage and arms an alarm.
+      if (!(await allow(env.RL_CREATE, caller))) return tooMany();
       return createSession(request, env, url);
     }
 
@@ -28,6 +33,11 @@ export default {
     if (m) {
       const code = normalize(m[1]);
       if (!CODE_RE.test(code)) return json({ error: "bad_code" }, 400);
+
+      // Checked before the stub is touched: resolving a code is what wakes the
+      // object, and it is also the oracle that says whether a code is live.
+      if (!(await allow(env.RL_LOOKUP, caller))) return tooMany();
+      if (!(await allow(env.RL_CODE, code))) return tooMany();
 
       const stub = env.SESSIONS.get(env.SESSIONS.idFromName(code));
       const action = m[2];
@@ -198,11 +208,17 @@ function cors(res) {
   return res;
 }
 
-function json(body, status = 200) {
-  return cors(new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-  }));
+function json(body, status = 200, extra = null) {
+  const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+  if (extra) Object.assign(headers, extra);
+  return cors(new Response(JSON.stringify(body), { status, headers }));
+}
+
+// A refusal, not a verdict: the window is a minute and the client may come back.
+// The socket path gets JSON too — a failed upgrade is a failed upgrade either
+// way, and this is the version a person reads with curl.
+function tooMany() {
+  return json({ error: "rate_limited" }, 429, { "retry-after": "60" });
 }
 
 function html(body) {
