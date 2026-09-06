@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DinoJump</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#0d1117;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+(function () {
+  "use strict";
+
+  var W = 1920, H = 1080, GROUND = 820;
+  var cv = document.getElementById("c"), ctx = cv.getContext("2d");
+
+  // Samsung remote: arrows use standard key codes, Back is 10009.
+  var K_UP = 38, K_DOWN = 40, K_LEFT = 37, K_RIGHT = 39, K_ENTER = 13, K_BACK = 10009;
+
+  // Two speeds: walk and run. Run is faster and earns more points per frame.
+  var MODES = {
+    walk: { speed: 6.5,  label: "WALK", mult: 1.0, color: "#4ea3ff" },
+    run:  { speed: 12.5, label: "RUN", mult: 2.2, color: "#ff8a3d" }
+  };
+
+  var state, best = 0;
+  try { best = parseInt(localStorage.getItem("dinojump.best"), 10) || 0; } catch (e) {}
+
+  function reset() {
+    state = {
+      phase: "ready",            // ready | play | over
+      mode: "walk",
+      t: 0,
+      score: 0,
+      ramp: 0,                   // speed bonus, grows over time
+      dino: { y: 0, vy: 0, duck: false, onGround: true },
+      obstacles: [],
+      clouds: [],
+      ground: [],
+      nextSpawn: 90,
+      flash: 0
+    };
+    for (var i = 0; i < 7; i++) {
+      state.clouds.push({ x: Math.random() * W, y: 90 + Math.random() * 250,
+                          s: 0.18 + Math.random() * 0.3, w: 120 + Math.random() * 120 });
+    }
+    // Three hill layers at different speeds — distant ones barely move.
+    state.hills = [
+      { off: 0, speed: 0.06, top: 470, h: 190, color: "#2a3550", step: 300, jag: 0.55 },
+      { off: 0, speed: 0.14, top: 560, h: 170, color: "#38456a", step: 230, jag: 0.75 },
+      { off: 0, speed: 0.30, top: 660, h: 150, color: "#46527d", step: 170, jag: 1.0 }
+    ];
+    for (var j = 0; j < 70; j++) {
+      // spread across ground height: pebbles near the bottom are larger and lighter
+      var d = Math.random();
+      state.ground.push({ x: Math.random() * W, w: 5 + d * 34, o: d * (H - GROUND - 30), d: d });
+    }
+  }
+
+  function speed() {
+    return MODES[state.mode].speed + state.ramp;
+  }
+
+  // ---- drawing ----
+
+  // Sky and sun are static, so bake them once into an offscreen canvas
+  // and blit with a single drawImage each frame. Gradient fills on this hardware
+  // are noticeably costlier than blitting a pre-rendered image: benchmark showed 41.6 -> 60 fps.
+  var skyCv = document.createElement("canvas");
+  skyCv.width = W; skyCv.height = GROUND + 4;
+  (function () {
+    var c = skyCv.getContext("2d");
+    var g = c.createLinearGradient(0, 0, 0, GROUND);
+    g.addColorStop(0.00, "#101a33");
+    g.addColorStop(0.45, "#26355c");
+    g.addColorStop(0.78, "#5a4a78");
+    g.addColorStop(1.00, "#a5657a");
+    c.fillStyle = g;
+    c.fillRect(0, 0, W, GROUND + 4);
+    c.fillStyle = "rgba(255,181,107,.13)";
+    c.beginPath(); c.arc(1480, 330, 132, 0, 6.2832); c.fill();
+    c.fillStyle = "#ffb56b";
+    c.beginPath(); c.arc(1480, 330, 74, 0, 6.2832); c.fill();
+  })();
+
+  // Ground is also static vertically — bake as a separate strip.
+  var dirtCv = document.createElement("canvas");
+  dirtCv.width = 1; dirtCv.height = H - GROUND;      // single column, stretched on blit
+  (function () {
+    var c = dirtCv.getContext("2d");
+    var g = c.createLinearGradient(0, 0, 0, H - GROUND);
+    g.addColorStop(0, "#243350");
+    g.addColorStop(1, "#131a2a");
+    c.fillStyle = g;
+    c.fillRect(0, 0, 1, H - GROUND);
+  })();
+
+  function drawCloud(cl) {
+    var w = cl.w, h = w * 0.19;
+    ctx.fillStyle = "rgba(226,232,246,.20)";
+    ctx.fillRect(cl.x, cl.y, w, h);
+    ctx.fillRect(cl.x + w * 0.22, cl.y - h * 0.75, w * 0.5, h * 0.85);
+    ctx.fillStyle = "rgba(226,232,246,.30)";
+    ctx.fillRect(cl.x + w * 0.34, cl.y - h * 0.75, w * 0.26, h * 0.5);
+  }
+
+  // Sawtooth hill silhouette: one filled shape per layer.
+  // Peaks are computed from integer indices, so when scrolling
+  // the pattern does not drift and no infinite-tape buffer is needed.
+  function drawHills(L) {
+    var step = L.step, first = Math.floor(L.off / step);
+    ctx.fillStyle = L.color;
+    ctx.beginPath();
+    ctx.moveTo(-step, GROUND + 4);
+    for (var i = -1; i <= W / step + 2; i++) {
+      var idx = first + i;
+      var x = i * step - (L.off % step);
+      // pseudo-random but stable peak height
+      var r = Math.abs(Math.sin(idx * 12.9898 + L.speed * 78.233) * 43758.5453) % 1;
+      var peak = L.top + (1 - r) * L.h * L.jag;
+      ctx.lineTo(x, peak);
+      ctx.lineTo(x + step * 0.5, peak + L.h * 0.42 * r);
+    }
+    ctx.lineTo(W + step, GROUND + 4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawDino(x, y, duck, frame, dead) {
+    var body = dead ? "#ff6b6b" : "#7ee2a8";
+    var dark = dead ? "#c94f4f" : "#4fbf85";
+    ctx.fillStyle = body;
+
+    if (duck) {
+      ctx.fillRect(x, y + 36, 118, 58);          // elongated body
+      ctx.fillRect(x + 96, y + 22, 46, 40);      // head
+      // tail: three tapering blocks back and up
+      ctx.fillRect(x - 20, y + 44, 28, 22);
+      ctx.fillRect(x - 38, y + 34, 22, 18);
+      ctx.fillRect(x - 52, y + 26, 16, 14);
+      ctx.fillStyle = "#0d1117";
+      ctx.fillRect(x + 124, y + 34, 8, 8);       // eye
+      ctx.fillStyle = body;
+      var lp = frame ? 0 : 12;
+      ctx.fillRect(x + 14 + lp, y + 94, 22, 16);
+      ctx.fillRect(x + 58 - lp, y + 94, 22, 16);
+      return;
+    }
+
+    // TAIL: steps down in width and angles upward.
+    // First block overlaps the body, otherwise the tail reads as a separate object.
+    ctx.fillRect(x - 14, y + 34, 28, 26);
+    ctx.fillRect(x - 32, y + 24, 22, 20);
+    ctx.fillRect(x - 46, y + 16, 16, 16);
+    ctx.fillStyle = dark;                        // shadow along bottom edge of tail
+    ctx.fillRect(x - 14, y + 54, 28, 6);
+    ctx.fillRect(x - 32, y + 38, 22, 5);
+    ctx.fillStyle = body;
+
+    ctx.fillRect(x + 6,  y + 30, 62, 64);        // body
+    ctx.fillRect(x + 48, y,      58, 46);        // head
+    ctx.fillRect(x + 96, y + 30, 18, 12);        // snout
+    ctx.fillStyle = dark;
+    ctx.fillRect(x + 6,  y + 78, 62, 8);         // belly shadow
+    ctx.fillStyle = "#0d1117";
+    ctx.fillRect(x + 84, y + 12, 9, 9);          // eye
+    ctx.fillStyle = body;
+    ctx.fillRect(x + 20, y + 46, 26, 10);        // foot
+
+    if (dead) {
+      ctx.fillRect(x + 10, y + 94, 24, 18);
+      ctx.fillRect(x + 44, y + 94, 24, 18);
+    } else {
+      ctx.fillRect(x + 10, y + 94, 24, frame ? 22 : 10);
+      ctx.fillRect(x + 44, y + 94, 24, frame ? 10 : 22);
+    }
+  }
+
+  function drawCactus(o) {
+    ctx.fillStyle = "#3fb950";
+    for (var i = 0; i < o.n; i++) {
+      var x = o.x + i * (o.w + 12);
+      ctx.fillRect(x, o.y, o.w, o.h);
+      ctx.fillRect(x - 12, o.y + o.h * 0.35, 12, o.h * 0.28);
+      ctx.fillRect(x + o.w, o.y + o.h * 0.2, 12, o.h * 0.3);
+    }
+  }
+
+  function drawBird(o, frame) {
+    ctx.fillStyle = "#a78bfa";
+    ctx.fillRect(o.x, o.y + 18, 62, 20);
+    ctx.fillRect(o.x + 54, o.y + 10, 26, 20);
+    ctx.fillRect(o.x + 76, o.y + 16, 12, 8);
+    if (frame) { ctx.fillRect(o.x + 12, o.y - 16, 44, 34); }
+    else { ctx.fillRect(o.x + 12, o.y + 36, 44, 30); }
+  }
+
+  function drawHud() {
+    var m = MODES[state.mode];
+    ctx.textBaseline = "top";
+
+    ctx.font = "700 52px system-ui, -apple-system, Helvetica, sans-serif";
+    ctx.fillStyle = "#e6edf3";
+    ctx.textAlign = "right";
+    ctx.fillText(String(Math.floor(state.score)).replace(/\B(?=(\d{3})+(?!\d))/g, " "), W - 120, 90);
+    ctx.font = "600 30px system-ui, -apple-system, Helvetica, sans-serif";
+    ctx.fillStyle = "#7d8590";
+    ctx.fillText("best " + Math.floor(best), W - 120, 152);
+
+    // mode indicator
+    ctx.textAlign = "left";
+    ctx.fillStyle = m.color;
+    ctx.fillRect(120, 92, 14, 46);
+    ctx.font = "700 42px system-ui, -apple-system, Helvetica, sans-serif";
+    ctx.fillText(m.label, 154, 94);
+    ctx.font = "500 26px system-ui, -apple-system, Helvetica, sans-serif";
+    ctx.fillStyle = "#7d8590";
+    ctx.fillText("x" + m.mult.toFixed(1) + " pts", 154, 146);
+  }
+
+  function drawHint(lines) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    var boxW = 1180, boxH = 430, bx = (W - boxW) / 2, by = H / 2 - boxH / 2;
+    ctx.fillStyle = "rgba(10,14,26,.82)";
+    ctx.fillRect(bx, by, boxW, boxH);
+    ctx.strokeStyle = "rgba(126,226,168,.35)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(bx, by, boxW, boxH);
+
+    // Accumulate spacing: each line's gap is the distance TO THE NEXT line.
+    // Previously computed as i*gap, which made lines with different gaps overlap.
+    var total = 0, i;
+    for (i = 0; i < lines.length - 1; i++) total += lines[i].gap;
+    var y = H / 2 - total / 2;
+    for (i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      ctx.font = (l.big ? "700 " : "500 ") + l.size +
+                 "px system-ui, -apple-system, Helvetica, sans-serif";
+      ctx.fillStyle = l.color || "#e6edf3";
+      ctx.fillText(l.text, W / 2, y);
+      y += l.gap;
+    }
+  }
+
+  // ---- logic ----
+
+  function spawn() {
+    var r = Math.random();
+    if (r < 0.62) {
+      var big = Math.random() < 0.4;
+      var w = big ? 46 : 32, h = big ? 108 : 74;
+      state.obstacles.push({ kind: "cactus", x: W + 60, y: GROUND - h, w: w, h: h,
+                             n: 1 + (Math.random() < 0.35 ? 1 : 0) + (Math.random() < 0.15 ? 1 : 0) });
+    } else {
+      // low bird — jump over; high bird — duck under
+      var low = Math.random() < 0.5;
+      state.obstacles.push({ kind: "bird", x: W + 60, y: low ? GROUND - 96 : GROUND - 210,
+                             w: 88, h: 48, low: low });
+    }
+  }
+
+  function hitbox() {
+    var d = state.dino;
+    if (d.duck) return { x: 260, y: GROUND - 110 + d.y + 36, w: 118, h: 58 };
+    return { x: 266, y: GROUND - 110 + d.y, w: 96, h: 108 };
+  }
+
+  function overlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  function update() {
+    state.t++;
+    var d = state.dino;
+
+    if (state.phase === "play") {
+      state.ramp = Math.min(9, state.t / 900);
+      state.score += 0.35 * MODES[state.mode].mult * (1 + state.ramp / 12);
+
+      d.vy += 1.05;
+      d.y += d.vy;
+      if (d.y >= 0) { d.y = 0; d.vy = 0; d.onGround = true; }
+      else { d.onGround = false; }
+      if (d.duck && !d.onGround) { d.vy += 1.4; }   // faster fall while ducking
+
+      if (--state.nextSpawn <= 0) {
+        spawn();
+        var gap = 620 / speed();
+        state.nextSpawn = Math.round((46 + Math.random() * 44) * gap / 6);
+      }
+
+      var box = hitbox();
+      for (var i = state.obstacles.length - 1; i >= 0; i--) {
+        var o = state.obstacles[i];
+        o.x -= speed();
+        var ob = o.kind === "cactus"
+          ? { x: o.x + 4, y: o.y, w: o.w * o.n + 12 * (o.n - 1) - 8, h: o.h }
+          : { x: o.x + 8, y: o.y + 12, w: 70, h: 30 };
+        if (overlap(box, ob)) {
+          state.phase = "over";
+          state.flash = 12;
+          if (state.score > best) {
+            best = state.score;
+            try { localStorage.setItem("dinojump.best", String(Math.floor(best))); } catch (e) {}
+          }
+        }
+        if (o.x < -260) state.obstacles.splice(i, 1);
+      }
+    }
+
+    var sp = state.phase === "play" ? speed() : 0;
+    for (var c = 0; c < state.clouds.length; c++) {
+      var cl = state.clouds[c];
+      cl.x -= sp * cl.s * 0.35;
+      if (cl.x < -320) { cl.x = W + Math.random() * 300; cl.y = 90 + Math.random() * 250; }
+    }
+    for (var hh = 0; hh < state.hills.length; hh++) {
+      var L = state.hills[hh];
+      L.off = (L.off + sp * L.speed) % (L.step * 4);
+    }
+    for (var g = 0; g < state.ground.length; g++) {
+      var gr = state.ground[g];
+      gr.x -= sp;
+      if (gr.x < -40) { gr.x = W + Math.random() * 120; }
+    }
+    if (state.flash > 0) state.flash--;
+  }
+
+  function render() {
+    // Sky with sun — one pre-baked blit instead of gradient and two arcs
+    ctx.drawImage(skyCv, 0, 0);
+
+    for (var c = 0; c < state.clouds.length; c++) drawCloud(state.clouds[c]);
+
+    // Hill layers: closer ones are lighter and faster
+    for (var hh = 0; hh < state.hills.length; hh++) drawHills(state.hills[hh]);
+
+    // Ground
+    ctx.drawImage(dirtCv, 0, 0, 1, H - GROUND, 0, GROUND + 4, W, H - GROUND);
+    ctx.fillStyle = "#5b6b93";
+    ctx.fillRect(0, GROUND + 2, W, 4);
+    for (var g = 0; g < state.ground.length; g++) {
+      var gr = state.ground[g];
+      ctx.fillStyle = gr.d > 0.6 ? "#3d4c6e" : "#2b3750";
+      ctx.fillRect(gr.x, GROUND + 14 + gr.o, gr.w, 3 + gr.d * 3);
+    }
+
+    var frame = Math.floor(state.t / (state.mode === "run" ? 4 : 8)) % 2 === 0;
+    for (var i = 0; i < state.obstacles.length; i++) {
+      var o = state.obstacles[i];
+      if (o.kind === "cactus") drawCactus(o); else drawBird(o, frame);
+    }
+
+    drawDino(260, GROUND - 110 + state.dino.y, state.dino.duck,
+             state.phase === "play" ? frame : true, state.phase === "over");
+
+    if (state.flash > 0) {
+      ctx.fillStyle = "rgba(255,107,107," + (state.flash / 34) + ")";
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    drawHud();
+
+    if (state.phase === "ready") {
+      drawHint([
+        { text: "DinoJump", size: 88, big: true, gap: 120 },
+        { text: "UP  jump        DOWN  duck", size: 38, gap: 58, color: "#8b9bb4" },
+        { text: "LEFT  walk      RIGHT  run", size: 38, gap: 96, color: "#8b9bb4" },
+        { text: "Press UP to start", size: 44, gap: 0, color: "#7ee2a8" }
+      ]);
+    } else if (state.phase === "over") {
+      drawHint([
+        { text: "Ate a cactus", size: 80, big: true, gap: 112, color: "#ff6b6b" },
+        { text: "Score  " + Math.floor(state.score), size: 54, gap: 66 },
+        { text: "Best  " + Math.floor(best), size: 38, gap: 100, color: "#8b9bb4" },
+        { text: "UP  restart      BACK  exit", size: 40, gap: 0, color: "#7ee2a8" }
+      ]);
+    }
+  }
+
+  function loop() { update(); render(); requestAnimationFrame(loop); }
+
+  // ---- remote input ----
+
+  document.addEventListener("keydown", function (e) {
+    var k = e.keyCode;
+    if (k === K_BACK) {
+      try { tizen.application.getCurrentApplication().exit(); } catch (x) {}
+      return;
+    }
+    if (k === K_LEFT) { state.mode = "walk"; return; }
+    if (k === K_RIGHT) { state.mode = "run"; return; }
+
+    if (k === K_UP || k === K_ENTER) {
+      if (state.phase === "ready") { state.phase = "play"; state.t = 0; return; }
+      if (state.phase === "over") { var m = state.mode; reset(); state.mode = m; state.phase = "play"; return; }
+      if (state.dino.onGround) { state.dino.vy = -22; state.dino.onGround = false; state.dino.duck = false; }
+      return;
+    }
+    if (k === K_DOWN) { state.dino.duck = true; }
+  });
+
+  document.addEventListener("keyup", function (e) {
+    if (e.keyCode === K_DOWN) { state.dino.duck = false; }
+  });
+
+  // Remote has no register buttons — register ourselves, otherwise the system intercepts Back.
+  try { tizen.tvinputdevice.registerKey("ArrowUp"); tizen.tvinputdevice.registerKey("ArrowDown"); } catch (x) {}
+
+  reset();
+  loop();
+})();
+</script>
+</body>
+</html>

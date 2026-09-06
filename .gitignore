@@ -1,0 +1,44 @@
+# ---------- SECRETS ----------
+# Pairing token for the monitor. Whoever holds it controls the device
+# over WebSocket without on-screen confirmation. Do not commit.
+# This is NOT config: the library rewrites the file when the monitor rotates the token.
+token.txt
+
+# Private notes about the device, home network, and local certificates.
+/LOCAL.md
+
+# Dump of the applications installed on the device: titles, usage counts and
+# install dates. Personal, and specific to one device — keep it local.
+/results/apps.json
+
+# Local configuration (monitor address, paths). See .env.example for a template.
+.env
+.env.local
+
+# Signing keys and certificates. Currently stored outside the project
+# (~/SamsungCertificate/, ~/tizen-studio-data/keystore/), but if they end up here —
+# do not publish.
+*.p12
+*.pri
+*.pwd
+*.csr
+*.crt
+*.key
+
+# ---------- environment ----------
+.venv/
+__pycache__/
+*.pyc
+
+# ---------- Tizen build ----------
+.buildResult/
+*.wgt
+
+# ---------- local Doom build ----------
+/.build/
+/Doom/doomgeneric.js
+/Doom/doomgeneric.wasm
+/Doom/doomgeneric.data
+
+# ---------- misc ----------
+.DS_Store

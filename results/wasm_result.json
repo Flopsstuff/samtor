@@ -1,0 +1,28 @@
+{
+  "hasWasm": true,
+  "validate": true,
+  "hasStreaming": true,
+  "hasSharedArrayBuffer": true,
+  "hasBigInt": true,
+  "simd": false,
+  "bulkMemory": false,
+  "refTypes": false,
+  "threadsMemory": true,
+  "moduleBytes": 375,
+  "compileMs": 731.3250000001972,
+  "instantiateMs": 3.9249999999810825,
+  "exports": [
+    "memory",
+    "mix",
+    "__indirect_function_table",
+    "_initialize",
+    "_emscripten_stack_restore",
+    "emscripten_stack_get_current"
+  ],
+  "correct": true,
+  "wasmMs": 8.080000000063592,
+  "jsMs": 129.01999999985492,
+  "wasmMops": 371.2871287099491,
+  "jsMops": 23.252208959877336,
+  "speedup": 15.96782178203459
+}

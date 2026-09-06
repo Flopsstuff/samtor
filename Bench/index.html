@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Bench</title>
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;overflow:hidden;
+            font:400 22px/1.45 system-ui,-apple-system,Helvetica,sans-serif}
+  /* Three screens; exactly one visible at a time. Switch with showScreen(). */
+  #wrap{padding:56px 80px;height:100%;box-sizing:border-box;display:none;flex-direction:column}
+  #menu{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;background:#0d1117;z-index:6}
+  #menu h1{font-size:64px;margin:0 0 8px}
+  #menu .tag{color:#7d8590;font-size:24px;margin-bottom:44px}
+  .item{width:640px;padding:26px 34px;margin:10px 0;border:2px solid #30363d;border-radius:16px;
+        background:#121a2a;font-size:34px;font-weight:600;color:#c9d1d9;
+        display:flex;justify-content:space-between;align-items:center}
+  .item .desc{display:block;font-size:19px;font-weight:400;color:#7d8590;margin-top:6px}
+  .item.sel{border-color:#4ea3ff;background:#16233d;color:#fff}
+  .item.sel .desc{color:#9fb4d8}
+  #menuHint{color:#6e7681;font-size:20px;margin-top:36px}
+  h1{margin:0;font-size:44px;letter-spacing:-.02em}
+  #sub{color:#7d8590;font-size:22px;margin:6px 0 22px}
+  #bar{height:8px;background:#21262d;border-radius:4px;overflow:hidden;margin-bottom:20px}
+  #fill{height:100%;width:0;background:#4ea3ff;transition:width .25s}
+  #log{flex:1;overflow:hidden;column-count:2;column-gap:56px;font-size:21px}
+  .row{display:flex;justify-content:space-between;gap:16px;padding:3px 0;
+       border-bottom:1px solid #1b2029;break-inside:avoid}
+  .k{color:#8b949e}
+  .v{color:#e6edf3;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+  .sec{color:#4ea3ff;font-weight:700;margin:14px 0 4px;font-size:23px;break-inside:avoid}
+  .good{color:#3fb950}.warn{color:#d29922}.bad{color:#ff6b6b}
+  canvas{position:fixed;left:-9999px;top:0}
+  #keys{position:absolute;left:0;top:0;right:0;bottom:0;background:#0d1117;padding:44px 64px;box-sizing:border-box;
+        display:none;flex-direction:column;z-index:5}
+  #keys h2{margin:0 0 4px;font-size:38px}
+  #hint{color:#7d8590;font-size:20px;margin-bottom:18px}
+  #last{background:#121a2a;border:1px solid #30363d;border-radius:14px;padding:20px 28px;
+        margin-bottom:16px;min-height:104px}
+  #lastName{font-size:52px;font-weight:700;color:#3fb950;line-height:1.1}
+  #lastMeta{color:#8b949e;font-size:21px;margin-top:6px;font-family:ui-monospace,Menlo,monospace}
+  #cols{flex:1;display:flex;gap:28px;min-height:0}
+  #hist{width:330px;font:600 19px/1.55 ui-monospace,Menlo,monospace;color:#c9d1d9;
+        overflow:hidden;border-right:1px solid #21262d;padding-right:20px}
+  #hist .t{color:#6e7681}
+  #grid{flex:1;display:flex;flex-wrap:wrap;align-content:flex-start;gap:8px;overflow:hidden}
+  .kb{border:1px solid #30363d;border-radius:8px;padding:6px 11px;font-size:17px;color:#7d8590;
+      font-family:ui-monospace,Menlo,monospace;background:#11161f}
+  .kb.hit{background:#1f6feb;border-color:#4ea3ff;color:#fff;font-weight:700}
+  .kb.unreg{border-style:dashed;color:#4d5560}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>Bench</h1>
+  <div id="sub">measuring what this monitor can do… · Back returns to the menu</div>
+  <div id="bar"><div id="fill"></div></div>
+  <div id="log"></div>
+</div>
+<div id="menu">
+  <h1>Bench</h1>
+  <div class="tag">Samsung Smart Monitor M8 · Tizen 6.5</div>
+  <div class="item sel" data-go="bench"><span>Benchmark<span class="desc">CPU, graphics, memory, codecs — about 40 s</span></span><span>&rsaquo;</span></div>
+  <div class="item" data-go="keys"><span>Remote keys<span class="desc">see which keys actually reach the app</span></span><span>&rsaquo;</span></div>
+  <div id="menuHint">&uarr;&darr; choose · Enter open · Back exit</div>
+</div>
+
+<div id="keys">
+  <h2>Remote keys</h2>
+  <div id="hint">press any key — I&rsquo;ll show what actually reaches the app ·
+      <b>Back</b> returns to the menu</div>
+  <div id="last"><div id="lastName">…</div><div id="lastMeta">press a key</div></div>
+  <div id="cols"><div id="hist"></div><div id="grid"></div></div>
+</div>
+<canvas id="cv" width="1920" height="1080"></canvas>
+<canvas id="gl" width="1920" height="1080"></canvas>
+<script>
+(function () {
+  "use strict";
+
+  var R = { info: {}, cpu: {}, mem: {}, gfx: {}, codecs: {} };
+  window.__BENCH__ = { status: "running", step: "", results: R };
+
+  var logEl = document.getElementById("log"),
+      subEl = document.getElementById("sub"),
+      fillEl = document.getElementById("fill");
+  var STEPS = 14, done = 0;
+
+  function section(t) {
+    var d = document.createElement("div");
+    d.className = "sec"; d.textContent = t; logEl.appendChild(d);
+  }
+  function row(k, v, cls) {
+    var d = document.createElement("div"); d.className = "row";
+    d.innerHTML = '<span class="k"></span><span class="v ' + (cls || "") + '"></span>';
+    d.children[0].textContent = k; d.children[1].textContent = v;
+    logEl.appendChild(d);
+  }
+  function tick(name) {
+    done++; window.__BENCH__.step = name;
+    subEl.textContent = name;
+    fillEl.style.width = Math.min(100, done / STEPS * 100) + "%";
+  }
+  function fmt(n, d) { return Number(n).toFixed(d === undefined ? 0 : d); }
+  function mb(b) { return (b / 1048576).toFixed(1) + " MB"; }
+  function next(fn) { setTimeout(fn, 40); }   // yield a frame so the UI can update
+
+  // measures how many times fn runs within ms milliseconds
+  function throughput(fn, ms) {
+    var end = performance.now() + (ms || 700), n = 0, t0 = performance.now();
+    while (performance.now() < end) { fn(); n++; }
+    var dt = performance.now() - t0;
+    return n / (dt / 1000);
+  }
+
+  // ---------- 1. device ----------
+  function stepInfo() {
+    tick("device");
+    var i = R.info;
+    i.userAgent = navigator.userAgent;
+    i.screen = screen.width + "x" + screen.height;
+    i.viewport = window.innerWidth + "x" + window.innerHeight;
+    i.dpr = window.devicePixelRatio || 1;
+    i.cores = navigator.hardwareConcurrency || null;
+    i.deviceMemoryGB = navigator.deviceMemory || null;
+    i.lang = navigator.language;
+
+    section("Device");
+    row("Screen resolution", i.screen);
+    row("App viewport", i.viewport);
+    row("devicePixelRatio", i.dpr);
+    row("CPU cores", i.cores === null ? "not reported" : i.cores);
+    row("RAM (navigator)", i.deviceMemoryGB === null ? "not reported" : i.deviceMemoryGB + " GB");
+    var m = i.userAgent.match(/Chrome\/([\d.]+)/);
+    row("Engine", m ? "Chromium " + m[1] : "unknown");
+    next(stepCpuInt);
+  }
+
+  // ---------- 2. CPU ----------
+  function stepCpuInt() {
+    tick("CPU: integer ops");
+    var x = 0;
+    var ops = throughput(function () {
+      for (var i = 0; i < 10000; i++) { x = (x * 31 + i) | 0; }
+    });
+    R.cpu.intMops = ops * 10000 / 1e6;
+    section("CPU");
+    row("Integer", fmt(R.cpu.intMops) + " M ops/s");
+    next(stepCpuFloat);
+  }
+
+  function stepCpuFloat() {
+    tick("CPU: floating point");
+    var x = 0.5;
+    var ops = throughput(function () {
+      for (var i = 0; i < 4000; i++) { x = Math.sqrt(Math.abs(Math.sin(x + i) * 1.0001)) + 0.5; }
+    });
+    R.cpu.floatMops = ops * 4000 / 1e6;
+    row("Math (sin/sqrt)", fmt(R.cpu.floatMops, 2) + " M ops/s");
+    next(stepCpuArray);
+  }
+
+  function stepCpuArray() {
+    tick("CPU: arrays and sorting");
+    var src = new Array(20000);
+    for (var i = 0; i < src.length; i++) src[i] = (i * 2654435761) % 100000;
+    var t0 = performance.now(), n = 0, end = t0 + 700;
+    while (performance.now() < end) { src.slice().sort(function (a, b) { return a - b; }); n++; }
+    R.cpu.sortsPerSec = n / ((performance.now() - t0) / 1000);
+    row("Sort 20k numbers", fmt(R.cpu.sortsPerSec, 1) + " /s");
+    next(stepCpuTyped);
+  }
+
+  function stepCpuTyped() {
+    tick("CPU: typed arrays");
+    var buf = new Float32Array(1 << 16);
+    var ops = throughput(function () {
+      for (var i = 0; i < buf.length; i++) { buf[i] = buf[i] * 1.0001 + 0.5; }
+    });
+    R.cpu.typedMops = ops * buf.length / 1e6;
+    row("Float32Array", fmt(R.cpu.typedMops) + " M el/s");
+    next(stepCpuString);
+  }
+
+  function stepCpuString() {
+    tick("CPU: strings and JSON");
+    var obj = { a: 1, b: "x", c: [1, 2, 3, 4, 5], d: { e: true, f: null } };
+    var ops = throughput(function () { JSON.parse(JSON.stringify(obj)); });
+    R.cpu.jsonPerSec = ops;
+    row("JSON round-trip", fmt(ops / 1000, 1) + " k/s");
+
+    // composite score: geometric mean of normalized metrics
+    R.cpu.score = Math.round(Math.pow(
+      (R.cpu.intMops / 100) * (R.cpu.floatMops / 5) * (R.cpu.typedMops / 200) * (R.cpu.jsonPerSec / 20000),
+      1 / 4) * 100);
+    row("CPU score", R.cpu.score,
+        R.cpu.score > 90 ? "good" : R.cpu.score > 45 ? "warn" : "bad");
+    next(stepCodecs);
+  }
+
+  // ---------- 3. codecs ----------
+  function stepCodecs() {
+    tick("codec support");
+    var v = document.createElement("video");
+    var list = {
+      "H.264 High":  'video/mp4; codecs="avc1.640028"',
+      "H.265/HEVC":  'video/mp4; codecs="hev1.1.6.L93.B0"',
+      "VP9":         'video/webm; codecs="vp9"',
+      "AV1":         'video/mp4; codecs="av01.0.05M.08"',
+      "AAC":         'audio/mp4; codecs="mp4a.40.2"',
+      "Opus":        'audio/webm; codecs="opus"'
+    };
+    section("Codecs");
+    for (var k in list) {
+      var r = v.canPlayType(list[k]);
+      R.codecs[k] = r || "no";
+      row(k, r === "probably" ? "yes" : r === "maybe" ? "maybe" : "no",
+          r === "probably" ? "good" : r === "maybe" ? "warn" : "bad");
+    }
+    next(stepGlInfo);
+  }
+
+  // ---------- 4. WebGL ----------
+  var gl = null;
+  function stepGlInfo() {
+    tick("WebGL: capabilities");
+    var c = document.getElementById("gl");
+    gl = c.getContext("webgl") || c.getContext("experimental-webgl");
+    section("Graphics");
+    if (!gl) {
+      R.gfx.webgl = false;
+      row("WebGL", "unavailable", "bad");
+      return next(stepCanvasFill);
+    }
+    R.gfx.webgl = true;
+    var dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    R.gfx.renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    R.gfx.vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+    R.gfx.glVersion = gl.getParameter(gl.VERSION);
+    R.gfx.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    R.gfx.webgl2 = !!c.getContext;
+    try { R.gfx.webgl2 = !!document.createElement("canvas").getContext("webgl2"); } catch (e) { R.gfx.webgl2 = false; }
+
+    row("GPU", String(R.gfx.renderer).slice(0, 34));
+    row("GL", String(R.gfx.glVersion).slice(0, 30));
+    row("Max texture", R.gfx.maxTexture + " px");
+    row("WebGL 2", R.gfx.webgl2 ? "yes" : "no", R.gfx.webgl2 ? "good" : "warn");
+    next(stepCanvasFill);
+  }
+
+  // measures average frame time under a given load
+  function measureFrames(draw, frames, cb) {
+    var times = [], last = performance.now(), n = 0;
+    function step() {
+      draw();
+      var now = performance.now();
+      times.push(now - last); last = now; n++;
+      if (n < frames) requestAnimationFrame(step);
+      else {
+        times.sort(function (a, b) { return a - b; });
+        cb(times[Math.floor(times.length / 2)]);   // median is more stable than mean
+      }
+    }
+    requestAnimationFrame(function () { last = performance.now(); step(); });
+  }
+
+  // ---------- 5. Canvas 2D: fill ----------
+  function stepCanvasFill() {
+    tick("Canvas 2D: fill rate");
+    var cv = document.getElementById("cv"), c2 = cv.getContext("2d");
+    var count = 500;
+    function draw() {
+      c2.clearRect(0, 0, 1920, 1080);
+      for (var i = 0; i < count; i++) {
+        c2.fillStyle = i & 1 ? "#4ea3ff" : "#3fb950";
+        c2.fillRect((i * 37) % 1860, (i * 71) % 1020, 56, 56);
+      }
+    }
+    function ramp() {
+      measureFrames(draw, 24, function (ft) {
+        if (ft < 16.9 && count < 400000) { count = Math.round(count * 1.7); ramp(); }
+        else {
+          R.gfx.maxRects60 = Math.round(count / 1.7);
+          R.gfx.rectFillRate = R.gfx.maxRects60 * 56 * 56 * 60 / 1e6;
+          row("Rects @60fps", R.gfx.maxRects60);
+          row("Fill rate", fmt(R.gfx.rectFillRate) + " Mpx/s");
+          next(stepCanvasSprite);
+        }
+      });
+    }
+    ramp();
+  }
+
+  // ---------- 6. Canvas 2D: sprites ----------
+  function stepCanvasSprite() {
+    tick("Canvas 2D: drawImage sprites");
+    var spr = document.createElement("canvas");
+    spr.width = spr.height = 64;
+    var sc = spr.getContext("2d");
+    sc.fillStyle = "#ff8a3d"; sc.fillRect(0, 0, 64, 64);
+    sc.fillStyle = "#0d1117"; sc.fillRect(12, 12, 40, 40);
+
+    var cv = document.getElementById("cv"), c2 = cv.getContext("2d");
+    var count = 300;
+    function draw() {
+      c2.clearRect(0, 0, 1920, 1080);
+      for (var i = 0; i < count; i++) {
+        c2.drawImage(spr, (i * 53) % 1856, (i * 97) % 1016);
+      }
+    }
+    function ramp() {
+      measureFrames(draw, 24, function (ft) {
+        if (ft < 16.9 && count < 200000) { count = Math.round(count * 1.7); ramp(); }
+        else {
+          R.gfx.maxSprites60 = Math.round(count / 1.7);
+          row("64px sprites @60fps", R.gfx.maxSprites60);
+          next(stepGlTri);
+        }
+      });
+    }
+    ramp();
+  }
+
+  // ---------- 7. WebGL: triangles ----------
+  function stepGlTri() {
+    tick("WebGL: throughput");
+    if (!gl) { return next(stepMem); }
+
+    var vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, "attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}");
+    gl.compileShader(vs);
+    var fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, "precision mediump float;void main(){gl_FragColor=vec4(.3,.64,1.,1.);}");
+    gl.compileShader(fs);
+    var pr = gl.createProgram();
+    gl.attachShader(pr, vs); gl.attachShader(pr, fs); gl.linkProgram(pr); gl.useProgram(pr);
+
+    var TRIS = 60000, arr = new Float32Array(TRIS * 6);
+    for (var i = 0; i < TRIS; i++) {
+      var x = Math.random() * 2 - 1, y = Math.random() * 2 - 1, s = 0.012;
+      arr[i * 6] = x; arr[i * 6 + 1] = y;
+      arr[i * 6 + 2] = x + s; arr[i * 6 + 3] = y;
+      arr[i * 6 + 4] = x; arr[i * 6 + 5] = y + s;
+    }
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(pr, "p");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    var count = 2000;
+    function draw() {
+      gl.viewport(0, 0, 1920, 1080);
+      gl.clearColor(0.05, 0.07, 0.09, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, count * 3);
+      gl.finish();
+    }
+    function ramp() {
+      measureFrames(draw, 22, function (ft) {
+        if (ft < 16.9 && count * 1.7 < TRIS) { count = Math.round(count * 1.7); ramp(); }
+        else {
+          R.gfx.maxTris60 = Math.round(count / 1.7);
+          R.gfx.triRate = R.gfx.maxTris60 * 60 / 1e6;
+          row("Triangles @60fps", R.gfx.maxTris60);
+          row("Throughput", fmt(R.gfx.triRate, 2) + " M tri/s");
+          next(stepMem);
+        }
+      });
+    }
+    ramp();
+  }
+
+  // ---------- 8. memory ----------
+  function stepMem() {
+    tick("memory: heap");
+    section("Memory");
+    var pm = performance.memory;
+    if (pm) {
+      R.mem.usedMB = pm.usedJSHeapSize / 1048576;
+      R.mem.totalMB = pm.totalJSHeapSize / 1048576;
+      R.mem.limitMB = pm.jsHeapSizeLimit / 1048576;
+      row("JS heap used", mb(pm.usedJSHeapSize));
+      row("JS heap total", mb(pm.totalJSHeapSize));
+      row("JS heap limit", mb(pm.jsHeapSizeLimit));
+    } else {
+      row("performance.memory", "unavailable", "warn");
+    }
+    next(stepAlloc);
+  }
+
+  function stepAlloc() {
+    tick("memory: allocation ceiling");
+    // grow in 16 MB chunks, capped at 1 GB — otherwise we risk killing the app
+    var chunks = [], CH = 16 * 1048576 / 4, capMB = 1024, okMB = 0;
+    try {
+      while (okMB < capMB) {
+        var a = new Float32Array(CH);
+        a[0] = 1; a[CH - 1] = 1;          // touch pages so memory is actually committed
+        chunks.push(a); okMB += 16;
+      }
+    } catch (e) {
+      R.mem.allocFailedAtMB = okMB;
+    }
+    R.mem.allocatedMB = okMB;
+    chunks.length = 0;
+    row("Allocated in a row", okMB + " MB" + (okMB >= capMB ? " (test ceiling)" : " → failed"),
+        okMB >= 512 ? "good" : okMB >= 192 ? "warn" : "bad");
+    next(stepFps);
+  }
+
+  // ---------- 9. baseline FPS ----------
+  function stepFps() {
+    tick("idle frame rate");
+    measureFrames(function () {}, 90, function (ft) {
+      R.gfx.idleFrameMs = ft;
+      R.gfx.idleFps = 1000 / ft;
+      section("Frames");
+      row("Empty frame", fmt(ft, 2) + " ms");
+      row("FPS ceiling", fmt(R.gfx.idleFps, 1),
+          R.gfx.idleFps > 55 ? "good" : R.gfx.idleFps > 28 ? "warn" : "bad");
+      finish();
+    });
+  }
+
+  function finish() {
+    window.__BENCH__.status = "done";
+    subEl.textContent = "done — results captured";
+    fillEl.style.width = "100%";
+    fillEl.style.background = "#3fb950";
+    try { console.log("BENCH_RESULT " + JSON.stringify(R)); } catch (e) {}
+  }
+
+  // ================== key display screen ==================
+  var keysEl   = document.getElementById("keys"),
+      lastName = document.getElementById("lastName"),
+      lastMeta = document.getElementById("lastMeta"),
+      histEl   = document.getElementById("hist"),
+      gridEl   = document.getElementById("grid");
+
+  var codeToName = {}, tiles = {}, hist = [], benchStarted = false;
+
+  // Basic keys always arrive; getSupportedKeys omits them — label manually.
+  var BUILTIN = { 37:"ArrowLeft", 38:"ArrowUp", 39:"ArrowRight", 40:"ArrowDown",
+                  13:"Enter", 10009:"Back", 27:"Escape", 9:"Tab" };
+
+  function addTile(name, code, registered) {
+    var d = document.createElement("div");
+    d.className = "kb" + (registered ? "" : " unreg");
+    d.textContent = name + " " + code;
+    gridEl.appendChild(d);
+    tiles[code] = d;
+  }
+
+  function initKeys() {
+    var supported = [];
+    try { supported = tizen.tvinputdevice.getSupportedKeys(); }
+    catch (e) {
+      document.getElementById("hint").textContent =
+        "getSupportedKeys unavailable (" + e.message + ") — showing only what arrives";
+    }
+    // Register everything we can: otherwise the key never reaches the app.
+    // Do not register Back (10009) — it must stay a guaranteed exit.
+    var okCount = 0;
+    supported.forEach(function (k) {
+      codeToName[k.code] = k.name;
+      var reg = false;
+      try { tizen.tvinputdevice.registerKey(k.name); reg = true; okCount++; } catch (e) {}
+      addTile(k.name, k.code, reg);
+    });
+    for (var c in BUILTIN) { if (!codeToName[c]) { codeToName[c] = BUILTIN[c]; addTile(BUILTIN[c], c, true); } }
+    window.__KEYS__ = { supported: supported.length, registered: okCount, seen: [] };
+  }
+
+  function onKey(e) {
+    var code = e.keyCode;
+    var name = codeToName[code] || "unknown";
+    lastName.textContent = name;
+    lastName.style.color = codeToName[code] ? "#3fb950" : "#d29922";
+    lastMeta.textContent = "keyCode " + code + "  ·  key '" + (e.key || "") + "'  ·  " +
+                           (codeToName[code] ? "listed by the device" : "NOT in getSupportedKeys");
+    if (tiles[code]) tiles[code].className = "kb hit";
+
+    var t = new Date().toLocaleTimeString("en-GB");
+    hist.unshift('<span class="t">' + t + '</span>  ' + name + "  " + code);
+    if (hist.length > 16) hist.pop();
+    histEl.innerHTML = hist.join("<br>");
+
+    if (window.__KEYS__ && window.__KEYS__.seen.indexOf(code) < 0) {
+      window.__KEYS__.seen.push(code);
+      window.__KEYS__.lastName = name;
+    }
+  }
+
+  // ================== screens ==================
+  var menuEl = document.getElementById("menu"),
+      wrapEl = document.getElementById("wrap");
+  var screen = "menu";                 // menu | bench | keys
+  var items = menuEl.querySelectorAll(".item");
+  var sel = 0;
+
+  function paintMenu() {
+    for (var i = 0; i < items.length; i++) {
+      items[i].className = "item" + (i === sel ? " sel" : "");
+    }
+  }
+
+  function showScreen(name) {
+    screen = name;
+    menuEl.style.display = (name === "menu") ? "flex" : "none";
+    keysEl.style.display = (name === "keys") ? "flex" : "none";
+    wrapEl.style.display = (name === "bench") ? "flex" : "none";
+  }
+
+  // Benchmark can be rerun — clear accumulated state or the report duplicates.
+  function startBench() {
+    logEl.innerHTML = "";
+    fillEl.style.width = "0";
+    fillEl.style.background = "#4ea3ff";
+    done = 0;
+    R.info = {}; R.cpu = {}; R.mem = {}; R.gfx = {}; R.codecs = {};
+    window.__BENCH__ = { status: "running", step: "", results: R };
+    showScreen("bench");
+    next(stepInfo);
+  }
+
+  document.addEventListener("keydown", function (e) {
+    var code = e.keyCode;
+
+    if (code === 10009) {                       // Back
+      if (screen === "menu") {                  // from menu — exit the app
+        try { tizen.application.getCurrentApplication().exit(); } catch (x) {}
+      } else {
+        if (screen === "keys") onKey(e);        // still show the key press
+        showScreen("menu");
+      }
+      return;
+    }
+
+    if (screen === "menu") {
+      if (code === 38) { sel = (sel + items.length - 1) % items.length; paintMenu(); }
+      else if (code === 40) { sel = (sel + 1) % items.length; paintMenu(); }
+      else if (code === 13) {
+        if (items[sel].getAttribute("data-go") === "bench") startBench();
+        else showScreen("keys");
+      }
+      return;
+    }
+
+    if (screen === "keys") { onKey(e); return; }
+    // ignore keys on the benchmark screen so they do not skew measurements
+  });
+
+  initKeys();
+  paintMenu();
+  showScreen("menu");
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Normalize line endings for text files
+* text=auto eol=lf
+
+# ---------- Git LFS: image assets ----------
+# Requires `git lfs install` in the clone, otherwise pointers arrive instead of files.
+*.png   filter=lfs diff=lfs merge=lfs -text
+
+# ---------- explicitly textual ----------
+*.py    text
+*.md    text
+*.html  text
+*.xml   text
+*.json  text
+*.svg   text

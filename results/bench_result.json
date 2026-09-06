@@ -1,0 +1,48 @@
+{
+  "info": {
+    "userAgent": "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.5 TV Safari/537.36",
+    "screen": "1920x1080",
+    "viewport": "1920x1080",
+    "dpr": 1,
+    "cores": 4,
+    "deviceMemoryGB": 1,
+    "lang": "en-GB"
+  },
+  "cpu": {
+    "intMops": 9.795312243426423,
+    "floatMops": 4.627579804326841,
+    "sortsPerSec": 36.76132708390738,
+    "typedMops": 184.26575086211128,
+    "jsonPerSec": 42645.714285697664,
+    "score": 65
+  },
+  "mem": {
+    "usedMB": 9.5367431640625,
+    "totalMB": 12.111663818359375,
+    "limitMB": 368.1182861328125,
+    "allocatedMB": 1024
+  },
+  "gfx": {
+    "webgl": true,
+    "renderer": "Mali-G31",
+    "vendor": "ARM",
+    "glVersion": "WebGL 1.0 (OpenGL ES 2.0 Chromium)",
+    "maxTexture": 8192,
+    "webgl2": true,
+    "maxRects60": 294,
+    "rectFillRate": 55.31904,
+    "maxSprites60": 176,
+    "maxTris60": 28397,
+    "triRate": 1.70382,
+    "idleFrameMs": 16.780000000380824,
+    "idleFps": 59.59475566014928
+  },
+  "codecs": {
+    "H.264 High": "probably",
+    "H.265/HEVC": "probably",
+    "VP9": "probably",
+    "AV1": "probably",
+    "AAC": "probably",
+    "Opus": "probably"
+  }
+}
