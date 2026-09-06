@@ -6,7 +6,7 @@
 <style>
   html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;overflow:hidden;
             font:400 22px/1.45 system-ui,-apple-system,Helvetica,sans-serif}
-  /* Three screens; exactly one visible at a time. Switch with showScreen(). */
+  /* Four screens; exactly one visible at a time. Switch with showScreen(). */
   #wrap{padding:56px 80px;height:100%;box-sizing:border-box;display:none;flex-direction:column}
   #menu{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;flex-direction:column;
         align-items:center;justify-content:center;background:#0d1117;z-index:6}
@@ -71,6 +71,62 @@
             word-break:break-all;display:none}
   .step{color:#8b949e;font-size:20px;margin:3px 0}
   .step b{color:#e6edf3}
+  /* The field sits high on purpose: the IME comes up from the bottom, and
+     whatever it covers cannot be read while dictating into it. */
+  #voice{position:absolute;left:0;top:0;right:0;bottom:0;background:#0d1117;padding:44px 64px;
+         box-sizing:border-box;display:none;flex-direction:column;z-index:5}
+  #voice h2{margin:0 0 4px;font-size:38px}
+  #voiceHint{color:#7d8590;font-size:20px;margin-bottom:20px}
+  #voiceRow{display:flex;gap:18px;align-items:stretch}
+  #voiceIn{flex:1;min-width:0;box-sizing:border-box;padding:18px 22px;border-radius:14px;
+           border:2px solid #30363d;background:#11161f;color:#e6edf3;outline:none;
+           font:600 34px/1.3 system-ui,-apple-system,Helvetica,sans-serif}
+  #voiceIn:focus{border-color:#4ea3ff;background:#16233d}
+  #voiceMic{width:230px;border:2px solid #30363d;border-radius:14px;background:#11161f;
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            color:#c9d1d9;font-size:19px;font-weight:600;gap:2px}
+  #voiceMic .ic{font-size:34px;line-height:1}
+  /* The selected slot is what Enter acts on; DOM focus belongs to the IME.
+     These need the id: a bare .slot.sel loses to #voiceIn / #voiceMic on
+     specificity and the highlight silently never paints. */
+  #voiceIn.sel{border-color:#4ea3ff;background:#16233d;color:#fff}
+  /* Selection is an outline and state is border+background, so the two can show
+     at once instead of overwriting each other at equal specificity. */
+  #voiceIn.sel,#voiceMic.sel{outline:4px solid rgba(78,163,255,.6);outline-offset:3px}
+  #voiceMic.idle  {border-color:#30363d;background:#11161f;color:#c9d1d9}
+  #voiceMic.arming{border-color:#d29922;background:#2a2416;color:#f0c674}
+  #voiceMic.armed {border-color:#ff6b6b;background:#2a1620;color:#ff9b9b;
+                   animation:micpulse 1.4s ease-out infinite}
+  #voiceMic.got   {border-color:#3fb950;background:#143020;color:#8ef0a8}
+  #voiceMic.err   {border-color:#ff6b6b;background:#2a1616;color:#ff9b9b}
+  @keyframes micpulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(255,107,107,.55)}
+    50%    {box-shadow:0 0 0 20px rgba(255,107,107,0)}
+  }
+  #voiceList{display:flex;flex-wrap:wrap;gap:12px;margin:10px 0 6px}
+  #voiceList .card{width:214px;padding:16px 18px;border:2px solid #30363d;border-radius:14px;
+                   background:#11161f;color:#c9d1d9}
+  #voiceList .card .n{font:700 15px/1 ui-monospace,Menlo,monospace;color:#6e7681}
+  #voiceList .card .t{font:700 26px/1.2 system-ui,sans-serif;margin-top:6px}
+  #voiceList .card.cur{border-color:#4ea3ff;background:#16233d;color:#fff}
+  #voiceList .card.cur .n{color:#4ea3ff}
+  #voiceList .card.picked{border-color:#3fb950;background:#143020;color:#8ef0a8}
+  #voiceCmd{margin:6px 0 4px;min-height:44px;
+            font:700 34px/1.25 system-ui,sans-serif;color:#3fb950}
+  #voiceStatus{margin:2px 0 12px;min-height:30px;
+               font:600 22px/1.35 ui-monospace,Menlo,monospace;color:#8b949e}
+  #voiceStatus b{color:#3fb950}
+  #voiceWhich{margin:2px 0 10px;font:700 22px/1.4 system-ui,sans-serif;color:#4ea3ff}
+  #voiceVal{margin:14px 0 2px;min-height:40px;word-break:break-all;
+            font:700 30px/1.3 ui-monospace,Menlo,monospace;color:#3fb950}
+  #voiceStats{display:flex;gap:26px;flex-wrap:wrap;margin:8px 0 16px;color:#8b949e;
+              font:600 19px/1.5 ui-monospace,Menlo,monospace}
+  #voiceStats b{color:#e6edf3;font-weight:700}
+  #voiceLog{flex:1;overflow:hidden;border-top:1px solid #21262d;padding-top:12px;
+            font:500 18px/1.5 ui-monospace,Menlo,monospace;color:#c9d1d9}
+  #voiceLog .t{color:#6e7681}
+  #voiceLog .e{color:#4ea3ff}
+  #voiceLog .w{color:#d29922}
 </style>
 </head>
 <body>
@@ -86,6 +142,7 @@
   <div class="item sel" data-go="bench"><span>Benchmark<span class="desc">CPU, graphics, memory, codecs — about 40 s</span></span><span>&rsaquo;</span></div>
   <div class="item" data-go="keys"><span>Remote keys<span class="desc">see which keys actually reach the app</span></span><span>&rsaquo;</span></div>
   <div class="item" data-go="pair"><span>Remote setup<span class="desc">fill this app&rsquo;s settings in from a phone or a computer</span></span><span>&rsaquo;</span></div>
+  <div class="item" data-go="voice"><span>Voice input<span class="desc">does the system keyboard offer a microphone?</span></span><span>&rsaquo;</span></div>
   <div id="menuHint">&uarr;&darr; choose · Enter open · Back exit</div>
 </div>
 
@@ -116,6 +173,26 @@
       <div id="pairPrev"></div>
     </div>
   </div>
+</div>
+<div id="voice">
+  <h2>Voice commands</h2>
+  <div id="voiceHint">&larr;&rarr; pick the field or the <b>voice</b> button ·
+      <b>Enter</b> arms it, <b>Enter</b> again disarms ·
+      <b>2</b> cycles the reported state · <b>0</b> clears the log ·
+      <b>Back</b> or <b>&uarr;</b> leaves the field, Back again leaves the screen<br>
+      armed, say: <b>next</b> · <b>previous</b> · <b>up</b> · <b>down</b> ·
+      <b>show more</b> · <b>select 3</b> · or a planet&rsquo;s name</div>
+  <div id="voiceRow">
+    <input id="voiceIn" class="slot" type="text" placeholder="dictate or type here">
+    <div id="voiceMic" class="slot idle"><span class="ic">&#127908;</span><span id="voiceMicLabel">voice</span></div>
+  </div>
+  <div id="voiceWhich">&mdash;</div>
+  <div id="voiceStatus">idle &mdash; press the voice button</div>
+  <div id="voiceList"></div>
+  <div id="voiceCmd">&mdash;</div>
+  <div id="voiceVal">&mdash;</div>
+  <div id="voiceStats"></div>
+  <div id="voiceLog"></div>
 </div>
 <canvas id="cv" width="1920" height="1080"></canvas>
 <canvas id="gl" width="1920" height="1080"></canvas>
@@ -718,10 +795,426 @@
     });
   }
 
+  // ================== voice input ==================
+  // The microphone button on the remote never reaches an application: the
+  // launcher takes it and opens the system search. Verified on the key screen —
+  // nothing arrives at all, the same way the Netflix and Disney+ buttons behave.
+  //
+  // Dictation itself does work on this device, so the only question left is
+  // whether the system keyboard raised for an ordinary <input> carries a
+  // microphone of its own. That needs no privilege and no platform API, which is
+  // why this screen is deliberately plain: a real field, and a log of everything
+  // the platform does around it.
+  //
+  // Every entry is written to localStorage as it happens. Dictation is expected
+  // to hand the screen to the system voice UI, and an in-memory log would not
+  // survive the application being suspended while that is up.
+
+  var voiceEl    = document.getElementById("voice"),
+      voiceIn    = document.getElementById("voiceIn"),
+      voiceMic   = document.getElementById("voiceMic"),
+      voiceWhich = document.getElementById("voiceWhich"),
+      voiceMicLabel = document.getElementById("voiceMicLabel"),
+      voiceStatus = document.getElementById("voiceStatus"),
+      voiceListEl = document.getElementById("voiceList"),
+      voiceCmdEl  = document.getElementById("voiceCmd"),
+      voiceVal   = document.getElementById("voiceVal"),
+      voiceStats = document.getElementById("voiceStats"),
+      voiceLogEl = document.getElementById("voiceLog");
+
+  var M1_KEY = "bench.m1.voice";
+  var vLog = [], vT0 = 0, vFlips = 0, vBound = false;
+
+  // Dictated text lands in innerHTML further down, and a transcript is not ours
+  // to trust about angle brackets.
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function vPrev() {
+    try {
+      var raw = localStorage.getItem(M1_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (x) {}
+    return [];
+  }
+
+  // Read over CDP after a run:  JSON.stringify(window.__M1__)
+  window.__M1__ = { events: vLog, prev: vPrev(), note: "voice / IME probe" };
+
+  function vRec(ev, detail) {
+    var vv = window.visualViewport;
+    vLog.push({
+      t:      Math.round(performance.now() - vT0),
+      ev:     ev,
+      detail: detail === undefined ? "" : String(detail),
+      value:  voiceIn.value,
+      vis:    document.visibilityState,
+      active: document.activeElement
+                ? (document.activeElement.id || document.activeElement.tagName) : "none",
+      w:  window.innerWidth,  h:  window.innerHeight,
+      vw: vv ? Math.round(vv.width) : null,
+      vh: vv ? Math.round(vv.height) : null
+    });
+    if (vLog.length > 400) vLog.shift();
+    try { localStorage.setItem(M1_KEY, JSON.stringify(vLog)); } catch (x) {}
+    vPaint();
+  }
+
+  function vPaint() {
+    voiceVal.textContent = voiceIn.value || "—";
+    var vv = window.visualViewport;
+    voiceStats.innerHTML =
+      "events <b>" + vLog.length + "</b>" +
+      " · visibility <b>" + document.visibilityState + "</b> flips <b>" + vFlips + "</b>" +
+      " · window <b>" + window.innerWidth + "×" + window.innerHeight + "</b>" +
+      (vv ? " · viewport <b>" + Math.round(vv.width) + "×" + Math.round(vv.height) + "</b>" : "") +
+      " · focus <b>" + (document.activeElement === voiceIn ? "field" : "elsewhere") + "</b>";
+
+    var out = [], n = Math.min(vLog.length, 14);
+    for (var i = 0; i < n; i++) {
+      var e = vLog[vLog.length - 1 - i];
+      var cls = (e.ev === "visibilitychange" || e.ev.indexOf("resize") >= 0) ? "w" : "e";
+      out.push('<span class="t">' + e.t + 'ms</span> <span class="' + cls + '">' + e.ev + "</span>" +
+               (e.detail ? "  " + esc(e.detail) : "") +
+               (e.value ? '  <span class="t">value=</span>"' + esc(e.value) + '"' : ""));
+    }
+    voiceLogEl.innerHTML = out.join("<br>");
+  }
+
+  function vBind() {
+    if (vBound) return;
+    vBound = true;
+
+    var FIELD = ["focus", "blur", "input", "change", "keydown", "keyup",
+                 "compositionstart", "compositionupdate", "compositionend"];
+    FIELD.forEach(function (name) {
+      voiceIn.addEventListener(name, function (e) {
+        var d = "";
+        if (name === "keydown" || name === "keyup") {
+          d = "keyCode " + e.keyCode + " key '" + (e.key || "") + "'";
+        } else if (name === "input") {
+          d = "inputType " + (e.inputType || "?") +
+              " data '" + (e.data === null || e.data === undefined ? "" : e.data) + "'";
+        } else if (name.indexOf("composition") === 0) {
+          d = "data '" + (e.data || "") + "'";
+        }
+        vRec(name, d);
+        // The IME closes with Cancel (65385), not Back (10009), so the global
+        // Back handler never ran and the field kept focus for ever — leaving no
+        // way back to the voice button. Either key releases the field here.
+        if (name === "keydown" && (e.keyCode === 65385 || e.keyCode === 10009)) {
+          vRec("release", "keyCode " + e.keyCode + " — leaving the field");
+          voiceIn.blur();
+          vSlot = 1; vPaintSlot();
+        }
+      });
+    });
+
+    // Whether the application is backgrounded while the voice UI is up is the
+    // thing that says who owns the interaction, so it is logged as an event.
+    document.addEventListener("visibilitychange", function () {
+      if (screen !== "voice") return;
+      vFlips++;
+      vRec("visibilitychange", document.visibilityState);
+    });
+
+    // The IME is an overlay; a resize is how it announces itself.
+    window.addEventListener("resize", function () {
+      if (screen !== "voice") return;
+      vRec("resize", window.innerWidth + "×" + window.innerHeight);
+    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", function () {
+        if (screen !== "voice") return;
+        vRec("viewport-resize", Math.round(window.visualViewport.width) +
+                                "×" + Math.round(window.visualViewport.height));
+      });
+    }
+  }
+
+
+  // ---- the voice button ----------------------------------------------------
+  // The microphone on the remote is the system's and never arrives here, but
+  // YouTube shows that an application can start voice input from a button of its
+  // own. It does that through webapis.voiceinteraction, which this device has at
+  // 1.0.8: listen() takes no arguments and raises nothing for a sideloaded app,
+  // and setCallback() accepts any non-empty object without checking the handler
+  // names. Which names it actually dispatches to is undocumented, so the callback
+  // is a proxy over a populated object: the own-key check passes, and any name
+  // the platform reaches for is recorded even if it was never guessed here.
+
+  // These are not guesses: a proxy callback recorded every name the platform
+  // looked for, and this is the whole set. They must be OWN properties —
+  // dispatch is gated on callback.hasOwnProperty(name), and a proxy that
+  // intercepts hasOwnProperty answers "absent" and silences everything.
+  var VI_HANDLERS = [
+    "onsearch", "ondefaultsearch", "onsearchcollection", "onnavigation",
+    "onselection", "ontitleselection", "onplay", "onpause", "onstop", "onrestart",
+    "onfastforward", "onrewind", "onskipforward", "onskipbackward",
+    "onsetplayposition", "onchangenexttrack", "onchangeprevioustrack",
+    "onchangerepeatmode", "onchangeshufflemode", "onchangesubtitlemode",
+    "onchangescreenfitmode", "onchangeappstate", "onupdatestate",
+    "oncontinuewatching", "onadditiontolist", "onremovalfromlist",
+    "onrequestcontentcontext", "onchange", "oncustom", "onrotate", "onzoom"
+  ];
+
+  // A spoken phrase can arrive as a plain string or wrapped in an object the
+  // platform expects getDataFromSearchTerm to open. Try both, in that order.
+  function vTerm(arg) {
+    if (typeof arg === "string" && arg) return arg;
+    if (arg && typeof arg === "object") {
+      try {
+        var d = webapis.voiceinteraction.getDataFromSearchTerm(arg, 0);
+        if (d) return typeof d === "string" ? d : JSON.stringify(d);
+      } catch (e) { vRec("getDataFromSearchTerm", e.name + ": " + e.message); }
+      try { return JSON.stringify(arg); } catch (e) {}
+    }
+    return "";
+  }
+
+  function vHandler(name) {
+    return function () {
+      // Answer first, log afterwards. The reply is the protocol, and everything
+      // this used to do before returning — stringify the log, write it to
+      // localStorage, repaint — put tens of milliseconds between the question
+      // and the answer. Nothing that can time out belongs on this path.
+      var args = arguments, reply = true, replyNote = "true";
+
+      if (name === "onupdatestate") {
+        reply = vState; replyNote = vState;
+      } else if (name === "onrequestcontentcontext") {
+        try {
+          var items = [];
+          for (var c = 0; c < VITEMS.length; c++) {
+            items.push(webapis.voiceinteraction.buildVoiceInteractionContentContextItem(
+              c % 3, Math.floor(c / 3), VITEMS[c], [VITEMS[c]], c === vCur));
+          }
+          reply = webapis.voiceinteraction.buildVoiceInteractionContentContextResponse(items);
+          replyNote = String(reply).slice(0, 120);
+        } catch (e) { reply = ""; replyNote = "FAILED " + e.name + ": " + e.message; }
+      }
+
+      setTimeout(function () { vLogCallback(name, args, replyNote); }, 0);
+      return reply;
+    };
+  }
+
+  // Everything expensive lives here, off the reply path.
+  function vLogCallback(name, args, replyNote) {
+    var a = [], term = "";
+    for (var i = 0; i < args.length; i++) {
+      try { a.push(JSON.stringify(args[i])); } catch (e) { a.push(String(args[i])); }
+      if (!term) term = vTerm(args[i]);
+    }
+    vRec("CALLBACK " + name, a.join(" | ").slice(0, 240));
+    vRec("replied", replyNote);
+    if (term && (name === "onsearch" || name === "ondefaultsearch")) {
+      vRec("term", term.slice(0, 200));
+      voiceIn.value = term;                   // only a real search term is text
+      vPaint();
+    }
+    try { vAct(name, args); } catch (e) { vRec("act", e.name + ": " + e.message); }
+    vCb++;
+    if (vGotTimer) clearTimeout(vGotTimer);
+    vMic("got", name.replace(/^on/, "").toUpperCase(),
+         "<b>" + name + "</b> from the system" + (term ? " &mdash; " + esc(term) : ""));
+    vGotTimer = setTimeout(function () {
+      if (vArmedAt) { vMic("armed", "LISTENING"); vStatusLine(); }
+      else vMic("idle", "voice", "idle &mdash; Enter on the button arms it");
+    }, 2500);
+  }
+
+  function vCallbackObject() {
+    var cb = {};
+    VI_HANDLERS.forEach(function (n) { cb[n] = vHandler(n); });
+    return cb;
+  }
+
+  function vStartVoice() {
+    var vi = window.webapis && webapis.voiceinteraction;
+    if (!vi) {
+      vRec("voiceinteraction", "absent on this device");
+      vMic("err", "unavailable", "webapis.voiceinteraction is absent on this device");
+      return;
+    }
+    vRec("voice-button", "pressed");
+    // Painted before the calls so the press is acknowledged even if they block.
+    vMic("arming", "arming…", "calling setCallback + listen…");
+    vStopTick();
+    setTimeout(vArm, 160);
+  }
+
+  function vArm() {
+    var vi = webapis.voiceinteraction;
+    var bad = "";
+    try { vi.setCallback(vCallbackObject()); vRec("setCallback", "accepted"); }
+    catch (e) { bad = "setCallback " + e.name; vRec("setCallback", e.name + ": " + e.message); }
+    try { vRec("listen", "returned " + JSON.stringify(vi.listen())); }
+    catch (e) { bad = bad || ("listen " + e.name); vRec("listen", e.name + ": " + e.message); }
+
+    if (bad) { vMic("err", "failed", "refused: " + bad); return; }
+    vArmedAt = performance.now();
+    vMic("armed", "LISTENING", "");
+    vStatusLine();
+    vTick = setInterval(vStatusLine, 1000);       // proof it is still live
+
+    // Second live path, registered alongside: voicecontrol is command-based, so
+    // it can only ever confirm one of these phrases — never free dictation.
+    try {
+      var c = tizen.voicecontrol.getVoiceControlClient();
+      c.addResultListener(function (result, cmds, extra) {
+        var d = String(result) + " " + JSON.stringify(cmds) + " " + JSON.stringify(extra);
+        vRec("voicecontrol.result", d);
+        vCb++;
+        if (vGotTimer) clearTimeout(vGotTimer);
+        vMic("got", "COMMAND", "<b>voicecontrol</b> &mdash; " + esc(d).slice(0, 120));
+        vGotTimer = setTimeout(function () {
+          if (vArmedAt) { vMic("armed", "LISTENING"); vStatusLine(); }
+        }, 2500);
+      });
+      c.setCommandList([new tizen.VoiceControlCommand("bench hello"),
+                        new tizen.VoiceControlCommand("bench test")], "FOREGROUND");
+      vRec("voicecontrol", "listening for “bench hello” / “bench test”, " +
+                           c.getCurrentLanguage());
+    } catch (e) { vRec("voicecontrol", e.name + ": " + e.message); }
+  }
+
+  // ---- the button's visible state -----------------------------------------
+  // The only thing this API ever sends us is onupdatestate, so every scrap of
+  // feedback is worth showing: pressing must change something instantly, and a
+  // ticking counter is the difference between "armed" and "hung".
+  var vSlot = 1;                                  // 0 = field, 1 = voice button
+  var vMicState = "idle", vCb = 0, vArmedAt = 0, vTick = null, vGotTimer = null;
+  // VoiceApplicationState: None | Home | List | Player | Setting | Search | Unknown.
+  // "Search" is what tells the assistant this screen searches its own content.
+  var vState = "List";      // what the working Samsung sample returns
+
+  // Distinct, easily pronounced titles: onrequestcontentcontext hands these to
+  // the assistant, which is what makes ontitleselection work — say a name and
+  // the assistant matches it against this list rather than searching the web.
+  var VITEMS = ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn"];
+  var vCur = 0, vPicked = -1, vPlaying = false;
+
+  function vPaintList() {
+    var h = "";
+    for (var i = 0; i < VITEMS.length; i++) {
+      h += '<div class="card' + (i === vCur ? " cur" : "") +
+           (i === vPicked ? " picked" : "") + '">' +
+           '<div class="n">' + (i + 1) + '</div><div class="t">' + VITEMS[i] + "</div></div>";
+    }
+    voiceListEl.innerHTML = h;
+  }
+
+  function vCmd(text) { voiceCmdEl.textContent = text; }
+
+  // Acting on a command, off the reply path — the assistant already has its answer.
+  function vAct(name, args) {
+    var a = args[0];
+    if (name === "onnavigation") {
+      var v = String(a);
+      if (/NEXT|RIGHT/.test(v))          vCur = (vCur + 1) % VITEMS.length;
+      else if (/PREVIOUS|LEFT/.test(v))  vCur = (vCur + VITEMS.length - 1) % VITEMS.length;
+      else if (/DOWN/.test(v))           vCur = (vCur + 3) % VITEMS.length;
+      else if (/UP/.test(v))             vCur = (vCur + VITEMS.length - 3) % VITEMS.length;
+      vCmd("navigation — " + v);
+    } else if (name === "onselection") {
+      // Measured on the device: this arrives 0-based ("select this" sends 0),
+      // not 1-based as the item numbering on screen suggests. The raw value is
+      // shown so the base stays checkable rather than assumed.
+      var n = parseInt(a, 10);
+      if (!isNaN(n) && n >= 0 && n < VITEMS.length) { vCur = n; vPicked = n; }
+      vCmd("selection — raw " + a + " → " + (VITEMS[n] || "out of range"));
+    } else if (name === "ontitleselection") {
+      var want = String(a).toLowerCase();
+      for (var i = 0; i < VITEMS.length; i++) {
+        if (VITEMS[i].toLowerCase() === want) { vCur = i; vPicked = i; }
+      }
+      vCmd("title selection — “" + a + "”");
+    } else if (name === "onplay")  { vPlaying = true;  vCmd("play"); }
+      else if (name === "onpause") { vPlaying = false; vCmd("pause"); }
+      else if (name === "onchangenexttrack")     { vCur = (vCur + 1) % VITEMS.length; vCmd("next track"); }
+      else if (name === "onchangeprevioustrack") { vCur = (vCur + VITEMS.length - 1) % VITEMS.length; vCmd("previous track"); }
+      else if (name === "onsearch" || name === "ondefaultsearch") {
+        vCmd("SEARCH — " + a);
+      } else if (name !== "onupdatestate" && name !== "onrequestcontentcontext") {
+        vCmd(name.replace(/^on/, "") + (a === undefined ? "" : " — " + a));
+      }
+    vPaintList();
+  }
+
+  function vMic(state, label, status) {
+    vMicState = state;
+    if (label !== undefined) voiceMicLabel.textContent = label;
+    if (status !== undefined) voiceStatus.innerHTML = status;
+    vPaintSlot();
+  }
+
+  function vStatusLine() {
+    if (!vArmedAt) return;
+    var s = Math.round((performance.now() - vArmedAt) / 1000);
+    voiceStatus.innerHTML = "listening &middot; replying <b>" + vState +
+      "</b> &middot; armed " + s + "s ago &middot; " +
+      (vCb ? "<b>" + vCb + " from the system</b>" : "nothing from the system yet");
+  }
+
+  function vStopTick() { if (vTick) { clearInterval(vTick); vTick = null; } }
+
+  // There is no unlisten() in this API — the surface is listen/setCallback/
+  // getVersion/getDataFromSearchTerm and the builders, nothing else. So this
+  // drops the command list (which genuinely unregisters), stops reacting, and
+  // says so rather than pretending the microphone was released.
+  function vDisarm(why) {
+    vArmedAt = 0;
+    vStopTick();
+    if (vGotTimer) { clearTimeout(vGotTimer); vGotTimer = null; }
+    var note = "";
+    try {
+      tizen.voicecontrol.getVoiceControlClient().unsetCommandList("FOREGROUND");
+      note = "commands unregistered";
+    } catch (e) { note = "unsetCommandList: " + e.name; }
+    vRec("disarm", why + " · " + note);
+    vMic("idle", "voice",
+         "idle &mdash; " + note + "; listen() has no counterpart and cannot be revoked");
+  }
+
+  function vPaintSlot() {
+    voiceIn.className  = "slot" + (vSlot === 0 ? " sel" : "");
+    voiceMic.className = "slot " + vMicState + (vSlot === 1 ? " sel" : "");
+    voiceWhich.textContent = vSlot === 0
+      ? "▶ text field — Enter opens the keyboard"
+      : "▶ VOICE button — Enter starts voice input";
+  }
+
+  function vActivate() {
+    if (vSlot === 0) { vRec("focus-requested", "Enter"); voiceIn.focus(); }
+    else if (vArmedAt) vDisarm("button");
+    else vStartVoice();
+  }
+
+  function vClear() {
+    vLog.length = 0;
+    vFlips = 0;
+    voiceIn.value = "";
+    vT0 = performance.now();
+    vRec("cleared", "");
+  }
+
+  function voiceStart() {
+    vT0 = performance.now();
+    vBind();
+    vPaintSlot();
+    vPaintList();
+    vCmd("—");
+    vMic("idle", "voice", "idle &mdash; Enter on the button arms it");
+    showScreen("voice");
+    vRec("screen-open", "previous log " + window.__M1__.prev.length + " events");
+  }
+
   // ================== screens ==================
   var menuEl = document.getElementById("menu"),
       wrapEl = document.getElementById("wrap");
-  var screen = "menu";                 // menu | bench | keys | pair
+  var screen = "menu";                 // menu | bench | keys | pair | voice
   var items = menuEl.querySelectorAll(".item");
   var sel = 0;
 
@@ -737,7 +1230,13 @@
     keysEl.style.display = (name === "keys") ? "flex" : "none";
     wrapEl.style.display = (name === "bench") ? "flex" : "none";
     pairEl.style.display = (name === "pair")  ? "flex" : "none";
+    voiceEl.style.display = (name === "voice") ? "flex" : "none";
     if (name !== "pair") pairStop();          // never leave a socket or timer running
+    // A field left focused keeps the IME up over whatever screen comes next.
+    if (name !== "voice") {
+      try { voiceIn.blur(); } catch (x) {}
+      if (vArmedAt) vDisarm("left the screen"); else vStopTick();
+    }
   }
 
   // Benchmark can be rerun — clear accumulated state or the report duplicates.
@@ -760,6 +1259,13 @@
         try { tizen.application.getCurrentApplication().exit(); } catch (x) {}
       } else {
         if (screen === "keys") onKey(e);        // still show the key press
+        // On the voice screen the first Back only leaves the field, so the IME
+        // can close without the screen vanishing out from under it.
+        if (screen === "voice" && document.activeElement === voiceIn) {
+          vRec("back", "leaving the field");
+          voiceIn.blur();
+          return;
+        }
         showScreen("menu");
       }
       return;
@@ -772,6 +1278,7 @@
         var go = items[sel].getAttribute("data-go");
         if (go === "bench") startBench();
         else if (go === "pair") pairStart();
+        else if (go === "voice") voiceStart();
         else showScreen("keys");
       }
       return;
@@ -779,6 +1286,32 @@
 
     if (screen === "pair") { if (code === 13) pairStart(); return; }
     if (screen === "keys") { onKey(e); return; }
+    if (screen === "voice") {
+      // Up always leaves the field and lands on the voice button. A single-line
+      // input has no use for it, and it is the one escape that works even while
+      // the IME is swallowing everything else.
+      if (code === 38 && document.activeElement === voiceIn) {
+        vRec("release", "Up — leaving the field");
+        voiceIn.blur();
+        vSlot = 1; vPaintSlot();
+        return;
+      }
+      // Otherwise, once the field has focus every key belongs to it and the IME.
+      if (document.activeElement === voiceIn) return;
+      if (code === 37 || code === 39 || code === 38 || code === 40) {
+        vSlot = vSlot ? 0 : 1; vPaintSlot();
+      }
+      else if (code === 13) vActivate();
+      else if (code === 48) vClear();          // 0 — digits reach our own app
+      else if (code === 50) {                  // 2 — cycle the state we report
+        var all = ["Search", "List", "Player", "Home", "Setting", "None", "Unknown"];
+        vState = all[(all.indexOf(vState) + 1) % all.length];
+        vRec("state", "now replying " + vState);
+        if (vArmedAt) vStatusLine();
+        else vMic("idle", "voice", "idle &mdash; will reply <b>" + vState + "</b> when armed");
+      }
+      return;
+    }
     // ignore keys on the benchmark screen so they do not skew measurements
   });
 

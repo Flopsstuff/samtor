@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" version="1.0.0" viewmodes="maximized">
-    <tizen:application id="BenchApp00.Bench" package="BenchApp00" required_version="3.0"/>
+    <tizen:application id="BenchApp00.Bench" package="BenchApp00" required_version="6.0"/>
     <feature name="http://tizen.org/feature/screen.size.all"/>
     <!-- M0: WebSocket left the device without this, but every fetch() failed.
          Tizen's widget access policy gates XHR/fetch to external origins. -->
@@ -8,17 +8,27 @@
     <content src="index.html"/>
     <icon src="icon.png"/>
 	<name>Bench</name>
-	<tizen:profile name="tv"/>
+	<tizen:profile name="tv-samsung"/>
     <tizen:privilege name="http://tizen.org/privilege/mediacapture"/>
     <tizen:privilege name="http://tizen.org/privilege/recorder"/>
     <tizen:privilege name="http://developer.samsung.com/privilege/microphone"/>
     <tizen:privilege name="http://tizen.org/privilege/voicecontrol"/>
     <tizen:privilege name="http://developer.samsung.com/privilege/voicecontrol"/>
     <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <!-- Matching SamsungDForum/SampleWebApps-VIF, the only known-working voice
+         interaction application: these three, the tv-samsung profile, the
+         prelaunch metadata and required_version 6.0 are what it declares. -->
+    <tizen:privilege name="http://developer.samsung.com/privilege/productinfo"/>
+    <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+    <tizen:privilege name="http://tizen.org/privilege/system"/>
     <!-- M0 pre-flight: outbound HTTPS/WSS and a place to persist a paired credential.
          Deliberately no <tizen:content-security-policy> yet — whether one is needed
          at all is part of what M0 is measuring. -->
     <tizen:privilege name="http://tizen.org/privilege/internet"/>
     <tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
     <tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
+    <tizen:metadata key="http://samsung.com/tv/metadata/prelaunch.support" value="true"/>
+    <tizen:setting screen-orientation="landscape" context-menu="enable"
+                   background-support="enable" encryption="disable"
+                   install-location="auto" hwkey-event="enable"/>
 </widget>
