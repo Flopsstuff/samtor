@@ -13,7 +13,7 @@ Replace every example address below with your own monitor. Documentation example
 | Directory | Display name | App ID | Description |
 |---|---|---|---|
 | `DinoJump/` | DinoJump | `DinoJump00.DinoJump` | Canvas 2D runner controlled with the remote's arrow keys |
-| `Bench/` | Bench | `BenchApp00.Bench` | CPU, graphics, memory, and codec benchmark; shows remote button events; remote setup demo |
+| `Bench/` | Bench | `BenchApp00.Bench` | CPU, graphics, memory, and codec benchmark; shows remote button events; remote setup demo; voice-command demo |
 | `Doom/` | Doom | `DoomApp000.Doom` | DOOM with sound (doomgeneric + SDL2_mixer); engine assets are built locally |
 
 The Tizen **package** ID must contain exactly 10 alphanumeric characters. A readable ID
@@ -295,6 +295,8 @@ Measured on a Smart Monitor M8 (Tizen 6.5, Chromium 85, Mali-G31 GPU):
 | Package IDs | Exactly **10 alphanumeric** characters in the package segment |
 | Developer Mode | sdb port may stay closed until after a **reboot** |
 | Smart Hub | **Icon cache** can show stale artwork after reinstall |
+| Microphone | The remote's button never reaches an application, and raw audio is unavailable: `getUserMedia` fails, `webapis.microphone` is absent, `tizen.stt` does not exist. **Dictation cannot be implemented** |
+| Voice commands | `webapis.voiceinteraction` does work for a sideloaded app — navigation, selection, media control, and `ontitleselection` for spoken titles. Needs `required_version` **6.0** and the **`tv-samsung`** profile, and every callback must **return** a value or the TV handles the utterance itself |
 
 ## On-device debugging
 
