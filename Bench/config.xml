@@ -2,6 +2,9 @@
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" version="1.0.0" viewmodes="maximized">
     <tizen:application id="BenchApp00.Bench" package="BenchApp00" required_version="3.0"/>
     <feature name="http://tizen.org/feature/screen.size.all"/>
+    <!-- M0: WebSocket left the device without this, but every fetch() failed.
+         Tizen's widget access policy gates XHR/fetch to external origins. -->
+    <access origin="*" subdomains="true"/>
     <content src="index.html"/>
     <icon src="icon.png"/>
 	<name>Bench</name>
@@ -12,4 +15,10 @@
     <tizen:privilege name="http://tizen.org/privilege/voicecontrol"/>
     <tizen:privilege name="http://developer.samsung.com/privilege/voicecontrol"/>
     <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <!-- M0 pre-flight: outbound HTTPS/WSS and a place to persist a paired credential.
+         Deliberately no <tizen:content-security-policy> yet — whether one is needed
+         at all is part of what M0 is measuring. -->
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
+    <tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
 </widget>

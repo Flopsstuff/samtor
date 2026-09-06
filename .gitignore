@@ -30,6 +30,16 @@ token.txt
 __pycache__/
 *.pyc
 
+# ---------- Cloudflare Worker ----------
+# wrangler.deploy.json is generated and carries the public hostname, which is a
+# deploy-time secret rather than something to publish with the source.
+pairing/wrangler.deploy.json
+# Same reason on the device side: the app is told its pairing host locally.
+*/local-config.js
+pairing/node_modules/
+pairing/.wrangler/
+pairing/.dev.vars
+
 # ---------- Tizen build ----------
 .buildResult/
 *.wgt

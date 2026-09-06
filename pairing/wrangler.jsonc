@@ -1,0 +1,20 @@
+{
+  "name": "samtor-pair",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+
+  // No "routes" here on purpose. The public hostname is deliberately absent from
+  // this repository; scripts/with-route.mjs injects it from PAIR_HOSTNAME at deploy
+  // time and writes wrangler.deploy.json, which is gitignored.
+  // Without PAIR_HOSTNAME the Worker simply deploys to its workers.dev subdomain.
+
+  "durable_objects": {
+    "bindings": [{ "name": "SESSIONS", "class_name": "PairSession" }]
+  },
+
+  // SQLite is the only Durable Object backend available on the Workers Free plan,
+  // and the recommended one on any plan.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PairSession"] }],
+
+  "observability": { "enabled": true }
+}

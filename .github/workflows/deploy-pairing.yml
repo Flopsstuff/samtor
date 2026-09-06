@@ -1,0 +1,48 @@
+name: Deploy pairing service
+
+# The public hostname is not in this repository. It arrives as a secret, which
+# GitHub also redacts from the logs — including from wrangler's own output.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pairing/**"
+      - ".github/workflows/deploy-pairing.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-pairing
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The page ships inside a template literal, so the source and what the
+      # browser receives are not the same text. This parses the rendered page.
+      - name: Check the rendered page
+        working-directory: pairing
+        run: node ../tests/test_pairing_page.mjs
+
+      - name: Build the deploy config
+        working-directory: pairing
+        env:
+          PAIR_HOSTNAME: ${{ secrets.PAIR_HOSTNAME }}
+        run: node scripts/with-route.mjs
+
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: pairing
+          # The action defaults to the wrangler 3 line; SQLite-backed Durable
+          # Objects and this config were developed and tested against 4.
+          wranglerVersion: "4"
+          command: deploy --config wrangler.deploy.json

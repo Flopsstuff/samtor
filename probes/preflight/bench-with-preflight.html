@@ -51,6 +51,11 @@
   .kb.hit{background:#1f6feb;border-color:#4ea3ff;color:#fff;font-weight:700}
   .kb.unreg{border-style:dashed;color:#4d5560}
   /* Chromium 85 here has no `inset` shorthand — it silently collapses to 0x0. */
+  #m0{position:absolute;left:0;top:0;right:0;bottom:0;background:#0d1117;padding:44px 64px;
+      box-sizing:border-box;display:none;flex-direction:column;z-index:5}
+  #m0 h2{margin:0 0 4px;font-size:38px}
+  #m0sub{color:#7d8590;font-size:20px;margin-bottom:18px}
+  #m0log{flex:1;overflow:hidden;column-count:2;column-gap:56px;font-size:21px}
   #pair{position:absolute;left:0;top:0;right:0;bottom:0;background:#0d1117;padding:44px 64px;
         box-sizing:border-box;display:none;flex-direction:column;z-index:5}
   #pair h2{margin:0 0 4px;font-size:38px}
@@ -85,6 +90,7 @@
   <div class="tag">Samsung Smart Monitor M8 · Tizen 6.5</div>
   <div class="item sel" data-go="bench"><span>Benchmark<span class="desc">CPU, graphics, memory, codecs — about 40 s</span></span><span>&rsaquo;</span></div>
   <div class="item" data-go="keys"><span>Remote keys<span class="desc">see which keys actually reach the app</span></span><span>&rsaquo;</span></div>
+  <div class="item" data-go="m0"><span>Pairing pre-flight<span class="desc">WebCrypto, outbound HTTPS/WSS, persistent storage</span></span><span>&rsaquo;</span></div>
   <div class="item" data-go="pair"><span>Remote setup<span class="desc">fill this app&rsquo;s settings in from a phone or a computer</span></span><span>&rsaquo;</span></div>
   <div id="menuHint">&uarr;&darr; choose · Enter open · Back exit</div>
 </div>
@@ -95,6 +101,11 @@
       <b>Back</b> returns to the menu</div>
   <div id="last"><div id="lastName">…</div><div id="lastMeta">press a key</div></div>
   <div id="cols"><div id="hist"></div><div id="grid"></div></div>
+</div>
+<div id="m0">
+  <h2>Pairing pre-flight &mdash; M0</h2>
+  <div id="m0sub">checking the assumptions behind the pairing plan &middot; <b>Back</b> returns to the menu</div>
+  <div id="m0log"></div>
 </div>
 <div id="pair">
   <h2>Remote setup</h2>
@@ -542,6 +553,333 @@
     }
   }
 
+  // ================== M0 pairing pre-flight ==================
+  // Verifies the platform assumptions behind pairing/PLAN.md before that service
+  // gets built: is WebCrypto usable in this context, does an outbound HTTPS/WSS
+  // connection leave the device, and is there anywhere to keep the credential.
+
+  var m0El  = document.getElementById("m0"),
+      m0Log = document.getElementById("m0log"),
+      m0Sub = document.getElementById("m0sub");
+
+  var M0 = {};
+  window.__M0__ = { status: "idle", results: M0 };
+
+  var LS_KEY = "m0.marker", PRIV_FILE = "wgt-private/m0.txt";
+
+  function m0sec(t) {
+    var d = document.createElement("div");
+    d.className = "sec"; d.textContent = t; m0Log.appendChild(d);
+  }
+  function m0row(k, v, cls) {
+    var d = document.createElement("div"); d.className = "row";
+    d.innerHTML = '<span class="k"></span><span class="v ' + (cls || "") + '"></span>';
+    d.children[0].textContent = k; d.children[1].textContent = v;
+    m0Log.appendChild(d);
+  }
+  function verdict(ok) { return ok ? "good" : "bad"; }
+
+  // Every probe resolves, never rejects — one dead endpoint must not stall the report.
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (!settled) { settled = true; resolve({ ok: false, error: "timeout after " + ms + " ms" }); }
+      }, ms);
+      promise.then(function (v) {
+        if (!settled) { settled = true; clearTimeout(timer); resolve(v); }
+      }, function (e) {
+        if (!settled) { settled = true; clearTimeout(timer); resolve({ ok: false, error: String((e && e.message) || e) }); }
+      });
+    });
+  }
+
+  // ---------- 1. execution context ----------
+  function checkContext(done) {
+    m0sec("Execution context");
+    var c = M0.context = {
+      protocol: location.protocol,
+      isSecureContext: !!window.isSecureContext,
+      hasSubtle: !!(window.crypto && window.crypto.subtle),
+      hasTextEncoder: (typeof TextEncoder !== "undefined"),
+      hasWebSocket: (typeof WebSocket !== "undefined"),
+      hasFetch: (typeof fetch !== "undefined")
+    };
+    m0row("location.protocol", c.protocol);
+    m0row("isSecureContext", String(c.isSecureContext), verdict(c.isSecureContext));
+    m0row("crypto.subtle", c.hasSubtle ? "present" : "MISSING", verdict(c.hasSubtle));
+    m0row("TextEncoder", c.hasTextEncoder ? "yes" : "no", verdict(c.hasTextEncoder));
+    m0row("WebSocket / fetch", (c.hasWebSocket ? "yes" : "no") + " / " + (c.hasFetch ? "yes" : "no"),
+          verdict(c.hasWebSocket && c.hasFetch));
+    done();
+  }
+
+  // ---------- 2. WebCrypto: the exact handshake the service needs ----------
+  function checkCrypto(done) {
+    m0sec("WebCrypto — ECDH P-256 → HKDF → AES-GCM");
+    var r = M0.crypto = { available: !!(window.crypto && window.crypto.subtle) };
+    if (!r.available) {
+      m0row("crypto.subtle", "MISSING — the end-to-end design cannot work here", "bad");
+      done(); return;
+    }
+    var subtle = window.crypto.subtle;
+    var ec = { name: "ECDH", namedCurve: "P-256" };
+
+    // a credential of the size this is all being built for
+    var ALPHA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    var rnd = new Uint8Array(128), token = "";
+    crypto.getRandomValues(rnd);
+    for (var i = 0; i < 128; i++) { token += ALPHA.charAt(rnd[i] % ALPHA.length); }
+    r.payloadChars = token.length;
+
+    // Only the private key follows the extractable flag; the public one is always
+    // exportable, which is exactly what has to travel inside the QR.
+    function hkdfAes(bits) {
+      return subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]).then(function (k) {
+        return subtle.deriveKey(
+          { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0),
+            info: new TextEncoder().encode("samtor-pair-v1") },
+          k, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+      });
+    }
+
+    var tv, phone, t0 = performance.now();
+    subtle.generateKey(ec, false, ["deriveBits"])
+      .then(function (k) { tv = k; return subtle.generateKey(ec, false, ["deriveBits"]); })
+      .then(function (k) { phone = k; return subtle.exportKey("raw", tv.publicKey); })
+      .then(function (raw) {
+        r.publicKeyBytes = new Uint8Array(raw).length;      // 65 = uncompressed P-256
+        r.keygenMs = +(performance.now() - t0).toFixed(1);
+        return Promise.all([
+          subtle.deriveBits({ name: "ECDH", public: tv.publicKey }, phone.privateKey, 256),
+          subtle.deriveBits({ name: "ECDH", public: phone.publicKey }, tv.privateKey, 256)
+        ]);
+      })
+      .then(function (bits) {
+        var a = new Uint8Array(bits[0]), b = new Uint8Array(bits[1]);
+        r.sharedSecretsMatch = a.length === b.length &&
+          Array.prototype.every.call(a, function (v, i) { return v === b[i]; });
+        return Promise.all([hkdfAes(bits[0]), hkdfAes(bits[1])]);
+      })
+      .then(function (keys) {
+        var iv = crypto.getRandomValues(new Uint8Array(12));
+        // encrypt with the phone-side key, decrypt with the TV-side key
+        return subtle.encrypt({ name: "AES-GCM", iv: iv }, keys[0], new TextEncoder().encode(token))
+          .then(function (ct) {
+            r.ciphertextBytes = ct.byteLength;
+            return subtle.decrypt({ name: "AES-GCM", iv: iv }, keys[1], ct);
+          });
+      })
+      .then(function (pt) {
+        r.roundTrip = new TextDecoder().decode(pt) === token;
+        r.totalMs = +(performance.now() - t0).toFixed(1);
+        r.ok = !!(r.sharedSecretsMatch && r.roundTrip);
+        m0row("keypair generation", r.keygenMs + " ms (two pairs)");
+        m0row("public key, raw export", r.publicKeyBytes + " bytes", verdict(r.publicKeyBytes === 65));
+        m0row("ECDH shared secrets agree", r.sharedSecretsMatch ? "yes" : "NO", verdict(r.sharedSecretsMatch));
+        m0row("128-char token round trip", r.roundTrip ? "decrypted intact" : "FAILED", verdict(r.roundTrip));
+        m0row("whole handshake", r.totalMs + " ms");
+        done();
+      })
+      .catch(function (e) {
+        r.ok = false; r.error = String((e && e.message) || e);
+        m0row("WebCrypto", "FAILED: " + r.error, "bad");
+        done();
+      });
+  }
+
+  // ---------- 3. outbound network ----------
+  function checkNetwork(done) {
+    m0sec("Outbound network");
+    var r = M0.network = { ws: {} };
+
+    var TRACE = "https://www.cloudflare.com/cdn-cgi/trace";
+    var DOH   = "https://cloudflare-dns.com/dns-query?name=example.com&type=A";
+
+    // The decisive question for the Worker: can a cross-origin body actually be READ
+    // from here? This endpoint sends no Access-Control-Allow-Origin, so under normal
+    // browser rules a default-mode fetch of it must fail.
+    function probeCorsRead() {
+      var t0 = performance.now();
+      return withTimeout(fetch(TRACE).then(function (res) {
+        return res.text().then(function (txt) {
+          return { ok: res.ok, status: res.status, type: res.type,
+                   ms: +(performance.now() - t0).toFixed(0), bytes: txt.length,
+                   readable: txt.indexOf("fl=") >= 0 };
+        });
+      }), 8000).then(function (v) {
+        r.corsRead = v;
+        m0row("cross-origin body readable", v.ok ? (v.type + " · " + v.bytes + " bytes read")
+                                                 : (v.error || "blocked"), verdict(!!v.readable));
+        return v;
+      });
+    }
+
+    // A custom Accept header makes this a preflighted request — does the runtime
+    // handle the OPTIONS round trip?
+    function probeJson() {
+      var t0 = performance.now();
+      return withTimeout(fetch(DOH, { headers: { accept: "application/dns-json" } })
+        .then(function (res) {
+          return res.json().then(function (j) {
+            return { ok: res.ok, status: res.status, ms: +(performance.now() - t0).toFixed(0),
+                     answered: !!(j.Answer && j.Answer.length), rcode: j.Status };
+          });
+        }), 8000).then(function (v) {
+          r.preflighted = v;
+          m0row("preflighted JSON fetch", v.ok ? ("status " + v.status + " · " + v.ms + " ms")
+                                               : (v.error || "failed"), verdict(!!v.ok));
+          if (v.ok) {
+            m0row("DNS answer parsed", v.answered ? "yes, A record" : "empty",
+                  v.answered ? "good" : "warn");
+          }
+          return v;
+        });
+    }
+
+    // Separates "the packet never left" from "CORS or CSP blocked reading the answer".
+    function probeNoCors() {
+      var t0 = performance.now();
+      return withTimeout(fetch("https://www.cloudflare.com/cdn-cgi/trace", { mode: "no-cors" })
+        .then(function (res) {
+          return { ok: true, type: res.type, ms: +(performance.now() - t0).toFixed(0) };
+        }), 8000).then(function (v) {
+          r.noCors = v;
+          m0row("HTTPS reachable, no-cors", v.ok ? (v.type + " · " + v.ms + " ms")
+                                                 : (v.error || "failed"), verdict(!!v.ok));
+          return v;
+        });
+    }
+
+    // WebSocket handshakes are not subject to CORS, so this is a clean connectivity test.
+    function probeWs(url, label) {
+      var t0 = performance.now();
+      return withTimeout(new Promise(function (resolve) {
+        var ws;
+        try { ws = new WebSocket(url); }
+        catch (e) { resolve({ ok: false, error: "constructor threw: " + e.message }); return; }
+        ws.onopen    = function () { try { ws.send("samtor-m0"); } catch (e) {} };
+        ws.onmessage = function (ev) {
+          resolve({ ok: true, ms: +(performance.now() - t0).toFixed(0),
+                    echo: String(ev.data).slice(0, 40) });
+          try { ws.close(); } catch (e) {}
+        };
+        ws.onerror   = function () { resolve({ ok: false, error: "connection error" }); };
+        ws.onclose   = function (ev) { resolve({ ok: false, error: "closed, code " + ev.code }); };
+      }), 10000).then(function (v) {
+        r.ws[label] = v;
+        m0row("WebSocket · " + label, v.ok ? ("echo in " + v.ms + " ms") : (v.error || "failed"),
+              verdict(!!v.ok));
+        return v;
+      });
+    }
+
+    probeNoCors()
+      .then(probeCorsRead)
+      .then(probeJson)
+      // One live echo is enough to prove the transport; the second slot belongs to
+      // the pairing service once that Worker exists.
+      .then(function () { return probeWs("wss://ws.postman-echo.com/raw", "postman-echo"); })
+      .then(function () { done(); }, function () { done(); });
+  }
+
+  // ---------- 4. persistence ----------
+  function checkStorage(done) {
+    m0sec("Persistence");
+    var r = M0.storage = {};
+
+    // The marker also answers whether reinstalling the package wipes the store:
+    // read what a previous install left behind, then leave a fresh one.
+    try {
+      r.previousLocalStorage = localStorage.getItem(LS_KEY);
+      localStorage.setItem(LS_KEY, new Date().toISOString());
+      r.localStorage = "ok";
+      m0row("localStorage", "writable", "good");
+      m0row("localStorage from a previous install", r.previousLocalStorage || "none — first run",
+            r.previousLocalStorage ? "good" : "warn");
+    } catch (e) {
+      r.localStorage = "failed: " + e.message;
+      m0row("localStorage", "FAILED: " + e.message, "bad");
+    }
+
+    if (typeof tizen === "undefined" || !tizen.filesystem) {
+      r.tizenFilesystem = "absent";
+      m0row("tizen.filesystem", "absent", "bad");
+      done(); return;
+    }
+    r.tizenFilesystem = "present";
+    r.apis = { openFile: typeof tizen.filesystem.openFile === "function",
+               resolve:  typeof tizen.filesystem.resolve  === "function" };
+    m0row("tizen.filesystem", (r.apis.openFile ? "openFile " : "") +
+                              (r.apis.resolve ? "resolve" : ""), "good");
+
+    var stamp = "m0 " + new Date().toISOString();
+
+    if (r.apis.openFile) {
+      var prev = null;
+      try { var fr = tizen.filesystem.openFile(PRIV_FILE, "r"); prev = fr.readString(); fr.close(); }
+      catch (e) { /* first run: the file does not exist yet */ }
+      try {
+        var fw = tizen.filesystem.openFile(PRIV_FILE, "w");
+        fw.writeString(stamp); fw.close();
+        var fb = tizen.filesystem.openFile(PRIV_FILE, "r");
+        var back = fb.readString(); fb.close();
+        r.wgtPrivate = { write: true, readBack: back === stamp, previous: prev };
+        m0row("wgt-private write + read back", back === stamp ? "ok" : "mismatch", verdict(back === stamp));
+        m0row("wgt-private from a previous install", prev || "none — first run", prev ? "good" : "warn");
+      } catch (e) {
+        r.wgtPrivate = { write: false, error: e.name + ": " + e.message };
+        m0row("wgt-private", "FAILED: " + e.name + " — " + e.message, "bad");
+      }
+      done(); return;
+    }
+
+    if (!r.apis.resolve) { done(); return; }
+    tizen.filesystem.resolve("wgt-private", function (dir) {
+      try {
+        var f;
+        try { f = dir.resolve("m0.txt"); } catch (e) { f = dir.createFile("m0.txt"); }
+        f.openStream("w", function (st) {
+          st.write(stamp); st.close();
+          r.wgtPrivate = { write: true, api: "resolve" };
+          m0row("wgt-private via resolve()", "written", "good");
+          done();
+        }, function (e) {
+          r.wgtPrivate = { write: false, error: String(e.message) };
+          m0row("wgt-private via resolve()", "FAILED: " + e.message, "bad");
+          done();
+        }, "UTF-8");
+      } catch (e) {
+        r.wgtPrivate = { write: false, error: String(e.message) };
+        m0row("wgt-private via resolve()", "FAILED: " + e.message, "bad");
+        done();
+      }
+    }, function (e) {
+      r.wgtPrivate = { write: false, error: "resolve failed: " + e.message };
+      m0row("wgt-private via resolve()", "FAILED: " + e.message, "bad");
+      done();
+    }, "rw");
+  }
+
+  function startM0() {
+    m0Log.innerHTML = "";
+    M0 = {};
+    window.__M0__ = { status: "running", results: M0 };
+    m0Sub.innerHTML = "running…";
+    showScreen("m0");
+
+    var steps = [checkContext, checkCrypto, checkNetwork, checkStorage], i = 0;
+    (function step() {
+      if (i >= steps.length) {
+        window.__M0__.status = "done";
+        m0Sub.innerHTML = "done · <b>Back</b> returns to the menu";
+        try { console.log("M0_RESULT " + JSON.stringify(M0)); } catch (e) {}
+        return;
+      }
+      steps[i++](function () { setTimeout(step, 40); });
+    })();
+  }
+
   // ================== remote setup ==================
   // All of the protocol lives in remote-config.js, which is meant to be copied
   // into any application. Bench only describes what it wants and draws the
@@ -721,7 +1059,7 @@
   // ================== screens ==================
   var menuEl = document.getElementById("menu"),
       wrapEl = document.getElementById("wrap");
-  var screen = "menu";                 // menu | bench | keys | pair
+  var screen = "menu";                 // menu | bench | keys | m0 | pair
   var items = menuEl.querySelectorAll(".item");
   var sel = 0;
 
@@ -736,6 +1074,7 @@
     menuEl.style.display = (name === "menu") ? "flex" : "none";
     keysEl.style.display = (name === "keys") ? "flex" : "none";
     wrapEl.style.display = (name === "bench") ? "flex" : "none";
+    m0El.style.display   = (name === "m0")    ? "flex" : "none";
     pairEl.style.display = (name === "pair")  ? "flex" : "none";
     if (name !== "pair") pairStop();          // never leave a socket or timer running
   }
@@ -771,6 +1110,7 @@
       else if (code === 13) {
         var go = items[sel].getAttribute("data-go");
         if (go === "bench") startBench();
+        else if (go === "m0") startM0();
         else if (go === "pair") pairStart();
         else showScreen("keys");
       }

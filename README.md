@@ -13,7 +13,7 @@ Replace every example address below with your own monitor. Documentation example
 | Directory | Display name | App ID | Description |
 |---|---|---|---|
 | `DinoJump/` | DinoJump | `DinoJump00.DinoJump` | Canvas 2D runner controlled with the remote's arrow keys |
-| `Bench/` | Bench | `BenchApp00.Bench` | CPU, graphics, memory, and codec benchmark; shows remote button events |
+| `Bench/` | Bench | `BenchApp00.Bench` | CPU, graphics, memory, and codec benchmark; shows remote button events; remote setup demo |
 | `Doom/` | Doom | `DoomApp000.Doom` | DOOM with sound (doomgeneric + SDL2_mixer); engine assets are built locally |
 
 The Tizen **package** ID must contain exactly 10 alphanumeric characters. A readable ID
@@ -24,13 +24,17 @@ The Tizen **package** ID must contain exactly 10 alphanumeric characters. A read
 ```
 DinoJump/  Bench/  Doom/     standalone Tizen web app projects
   Doom/build.sh              downloads verified upstream sources/assets and builds Doom locally
+pairing/                     remote configuration service — see pairing/README.md
+  client/                    the piece applications copy in
 tools/                       remote control, Developer Mode / sdb helpers, shared config
   config.py                  reads .env and environment variables
   tvctl.py                    pairing and remote-control CLI
   wait_sdb.py                wait for the sdb port after a reboot
   watch_devmode.py           poll Developer Mode and sdb port state
 probes/                      one-off CDP scripts used for measurements
+  preflight/                 the device checks the pairing design was built on
 results/                     JSON benchmark output from on-device runs
+tests/                       checks for the tooling, the Doom bundle and the phone page
 token.txt                    pairing secret (gitignored)
 .env.example                 configuration template — copy to `.env`
 LOCAL.md                     optional local device notes (gitignored; not in the repo)
@@ -241,6 +245,40 @@ on 2022+ firmware**:
   `samsungtvws` is expected.
 - Allowed clients appear under **Settings → General → External Device Manager → Device
   Connection Manager**. Revoking access there invalidates the saved token.
+
+## Configuring an application from another device
+
+Typing a long credential with a remote control is not a realistic way to set up a
+shipped application, and the platform offers no shortcut: a Tizen web application
+cannot open a listening socket, so nothing can reach it directly, and a browser on
+a phone cannot hand it anything over Bluetooth.
+
+`pairing/` solves it the way every TV application does. A Cloudflare Worker acts as
+a rendezvous point that both sides reach outbound. The application shows a QR and an
+eight-character code; the user opens that on a phone or a laptop, fills in a form,
+and the values arrive over a WebSocket that stays open — so they can be corrected and
+resent without starting again.
+
+An application only describes what it needs:
+
+```js
+RemoteConfig.start({
+  host: window.PAIR_HOST,
+  canvas: document.getElementById("qr"),
+  config: { app: "YourApp", fields: [
+    { key: "api_key", label: "API key", type: "secret", minLength: 16 }
+  ] },
+  onValues: function (values) { RemoteConfig.save("yourapp", values); }
+});
+```
+
+The form is built from that description, with masked and hidden fields, length
+bounds, patterns and fixed choices. `Bench` has a working example under **Remote
+setup**, and the whole thing is documented in [pairing/README.md](pairing/README.md).
+
+Two things an application must add to `config.xml`: the `internet` privilege and an
+`<access>` element for the host. Without `<access>` every `fetch` fails while
+WebSocket keeps working, which is a failure that points nowhere near its cause.
 
 ## Known Tizen and device limitations
 
