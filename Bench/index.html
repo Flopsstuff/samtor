@@ -249,16 +249,13 @@
         <div class="f"><label for="mTele">Send diagnostics</label>
           <input id="mTele" name="telemetry" type="checkbox"></div>
         <div class="f" style="width:100%"><label for="mKey">API key &mdash; the long one, paste it</label>
-          <textarea id="mKey" name="api_key" data-mirror-secret data-mirror-echo="value"
-                    minlength="16"></textarea></div>
-        <!-- Refused on purpose, one per rule, and the screen lists what and why.
-             A form usually has one or two of these, and a component that ignored
-             them silently would be worse than one that did not work. -->
-        <input type="hidden" name="client">
-        <input type="file" name="upload">
-        <input name="serial" value="fixed" readonly>
-        <input name="legacy" value="off" disabled>
-        <input name="card" autocomplete="cc-number">
+          <textarea id="mKey" name="api_key" data-mirror-secret minlength="16"></textarea></div>
+        <!-- Every field on this screen is one the mirror carries. The rules for
+             what it refuses — a file input, a readonly or disabled field, a card
+             number — are demonstrated in pairing/demo/mirror.html, which is for
+             reading the reasons rather than for using the form. Fields nobody can
+             fill in do not belong on a television. #mirrorSkipped below stays: if
+             a form ever does contain one, the screen says so. -->
         <div id="mirrorBtns">
           <button type="submit" name="save">Save</button>
           <button type="button" name="test">Test connection</button>
@@ -1041,7 +1038,7 @@
 
       onPatch: function (p) {
         if (p.length !== undefined) {
-          // A secret crosses as a length, never as characters.
+          // Only a field set to data-mirror-echo="length" arrives this way.
           mirrorRec(p.key + " is " + p.length + " characters (the value stays on the phone)");
           return;
         }

@@ -294,9 +294,10 @@ RemoteMirror.start({
 
 Nothing else is described: what the phone renders comes from the form's own markup —
 types, labels, `required`, `maxlength`, `pattern`, the options in a select, the buttons.
-A password mirrors as **how long it is** rather than as what it is, and the fields a
-mirror cannot carry (a file input, a hidden one, a card number) are reported instead of
-dropped in silence. Both modes take the same eight-character code or the same QR, and a
+Every field mirrors its value, a password included — that is what makes it a mirror; a
+field can be told to send only **how long it is** instead (`data-mirror-echo="length"`).
+The fields a mirror cannot carry (a file input, a hidden one, a card number) are
+reported instead of dropped in silence. Both modes take the same eight-character code or the same QR, and a
 code given to the wrong one offers the door rather than a dead end. `Bench` has this
 under **Form mirror**.
 

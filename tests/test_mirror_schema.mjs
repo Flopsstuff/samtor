@@ -63,10 +63,14 @@ check("required does not default to true", () => {
   eq(ok(config([field({ required: true })])).fields[0].required, true, "required when asked");
 });
 
-check("a secret mirrors as a length unless told otherwise", () => {
-  eq(ok(config([field({ type: "password" })])).fields[0].echo, "length", "password");
-  eq(ok(config([field({ type: "password", echo: "value" })])).fields[0].echo, "value", "opted in");
+check("every field mirrors its value, a secret included", () => {
+  // A mirror that showed dots where the password goes is not a mirror. Hiding a
+  // field's characters from the relay is available, and has to be asked for.
+  eq(ok(config([field({ type: "password" })])).fields[0].echo, "value", "password");
+  eq(ok(config([field({ type: "secret" })])).fields[0].echo, "value", "secret");
   eq(ok(config([field({ type: "text" })])).fields[0].echo, "value", "ordinary field");
+  eq(ok(config([field({ type: "password", echo: "length" })])).fields[0].echo, "length", "opted out");
+  eq(ok(config([field({ echo: "nonsense" })])).fields[0].echo, "value", "an unknown mode coerces");
 });
 
 check("every refusal code the schema can answer with is reachable", () => {
@@ -177,8 +181,8 @@ check("a value beyond the snapshot ceiling is refused, snapshot unchanged", () =
   eq(sawFull, true, "the ceiling was reached and refused");
 });
 
-check("a secret field carries its length and never its characters", () => {
-  const snap = emptySnapshot(ok(config([field({ type: "password" })])));
+check("a field set to echo its length carries no characters at all", () => {
+  const snap = emptySnapshot(ok(config([field({ type: "password", echo: "length" })])));
   const res = applyOps(snap, [{ op: "set", key: "api_key", value: "hunter2hunter2" }],
                        { from: "phone", stale: false });
   eq(res.snapshot.values.api_key, undefined, "no value stored");
@@ -212,9 +216,11 @@ check("actions are only the buttons and the navigation keys, and never Back", ()
 });
 
 check("emptySnapshot bakes the keys, ceilings and echo modes into the snapshot", () => {
-  const snap = emptySnapshot(ok(config([field({ maxLength: 12 }), { key: "pw", type: "password" }])));
+  const snap = emptySnapshot(ok(config([field({ maxLength: 12 }),
+                                        { key: "pw", type: "password", echo: "length" }])));
   eq(snap.keys.api_key.maxLen, 12, "per-key ceiling");
-  eq(snap.keys.pw.echo, "length", "per-key echo");
+  eq(snap.keys.api_key.echo, "value", "per-key echo");
+  eq(snap.keys.pw.echo, "length", "per-key echo, when a field asked to hide");
   eq(snap.actions.length >= 5, true, "navigation keys are actions");
   eq(snapshotBytes(snap) < LIMITS.MAX_SNAPSHOT_BYTES, true, "an empty snapshot fits");
 });

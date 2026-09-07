@@ -80,10 +80,10 @@
  *   onPatch(p)    { key, value, from } after a remote change was applied. This
  *                 is the contract: the synthetic input/change events are a
  *                 convenience, and they carry isTrusted false, so an
- *                 application that checks it will not see them. A field whose
- *                 echo is a length arrives as { key, length, from } instead —
- *                 there is no value to write, and the screen still wants to
- *                 show that fourteen characters have been typed.
+ *                 application that checks it will not see them. A field set to
+ *                 data-mirror-echo="length" arrives as { key, length, from }
+ *                 instead — there is no value to write, and the screen still
+ *                 wants to show that fourteen characters have been typed.
  *   onValues(v)   every current value, after a remote change.
  *   onFocus(key)  the phone moved to this field, or null.
  *   onAction(a)   { key } a button was pressed there. Return false to stop the
@@ -291,7 +291,9 @@
       required: !!d.required,
       secret: secret
     };
-    if (secret) field.echo = d.dataEcho === "value" ? "value" : "length";
+    // A password mirrors like anything else; data-mirror-echo="length" is how a
+    // field says only its length may cross.
+    if (secret) field.echo = d.dataEcho === "length" ? "length" : "value";
     if (multiline) field.multiline = true;
     if (d.placeholder) field.placeholder = collapse(d.placeholder, 60);
     if (options) field.options = options.slice(0, 24);
@@ -818,9 +820,9 @@
       var entry = byKey[op.key];
       if (!entry) return;
       if (op.op === "len") {
-        // A secret field mirrors as a length, so there is no value to write.
-        // The application still wants to show something, hence the callback:
-        // this is the only patch that carries a length instead of a value.
+        // A field set to echo its length has no value to write. The screen
+        // still wants to show something, hence the callback: this is the only
+        // patch that carries a length instead of a value.
         onPatch({ key: entry.key, length: op.n, from: from });
         return;
       }

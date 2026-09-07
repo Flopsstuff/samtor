@@ -349,10 +349,14 @@ class on an element with id-level styling loses on specificity and silently pain
 nothing, and an outline shows at the same time as whatever the application does for
 state. `focusMode: "dom"` is there for an application that wants the keyboard.
 
-A secret is mirrored as **how long it is**, not as what it is: a `password` field sends
-`{op:"len"}` and the other screen shows that fourteen characters have been typed. It
-travels once, on submit, and `data-mirror-echo="value"` opts a field out. Streaming a
-password through a relay one keystroke at a time is not a default worth shipping.
+**Every field mirrors its value, a password included.** A screen showing a row of dots
+where the password goes is not a mirror, and watching the characters land is the reason
+to put the form on two screens at all. A field that should cross as nothing but its
+length says so — `data-mirror-echo="length"`, or `echo: "length"` in an explicit
+schema — and then it sends `{op:"len"}` instead, the other screen shows that fourteen
+characters have been typed, and the relay never sees the characters at all. Worth
+reaching for on a shared or public deployment; on a personal one it is a tradeoff the
+application makes deliberately rather than one made for it.
 
 Two more things worth knowing before dropping this into a screen. A real submit from a
 `file:` origin navigates the widget away with nothing to come back from, so a mirrored
@@ -385,8 +389,9 @@ A mirror is a live channel rather than one delivery, and that is strictly more e
 than the setup path. Worth stating rather than discovering:
 
 - The relay sees **every keystroke, in order, with timing**, for every field whose echo
-  is a value. That is why a secret defaults to travelling as a length, and why the
-  option to send a password character by character has to be asked for by name.
+  is a value — a password included, since that is what mirroring means. A field can be
+  set to send only its length (`data-mirror-echo="length"`), which is the mechanism to
+  reach for when the relay is not one person's own.
 - Whoever connects first as the phone **reads what is on the screen** and occupies the
   only slot. Scanning the QR proves possession of a token the server never sees; typing
   the code does not, so the TV is told which way its peer arrived and says so on screen,

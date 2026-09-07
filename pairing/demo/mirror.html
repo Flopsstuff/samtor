@@ -86,11 +86,15 @@
         <label for="username">Username</label>
         <input id="username" name="username" minlength="3" maxlength="32" required>
 
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" minlength="8">
+        <!-- The one field here set to send only its length, so both echo modes
+             are visible side by side. Everything else, this password's siblings
+             included, mirrors its value. -->
+        <label for="password">Password &mdash; mirrored as a length only</label>
+        <input id="password" name="password" type="password" minlength="8"
+               data-mirror-echo="length">
 
         <label for="api_key">API key &mdash; the long one, paste it</label>
-        <textarea id="api_key" name="api_key" data-mirror-secret data-mirror-echo="value"
+        <textarea id="api_key" name="api_key" data-mirror-secret
                   minlength="16" rows="3"></textarea>
 
         <label for="email">Email</label>
@@ -201,7 +205,7 @@
       },
       onPatch: function (p) {
         if (p.length !== undefined) {
-          // A secret never crosses the relay; only how long it is does.
+          // This field asked to send only its length, so there is no value.
           document.getElementById(p.key).placeholder = p.length + " characters typed";
           log("<- " + p.key + " is " + p.length + " characters (the value stays on the phone)");
           return;

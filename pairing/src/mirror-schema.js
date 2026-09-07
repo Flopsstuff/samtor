@@ -70,9 +70,9 @@ export const FIELD_TYPES = ["text", "password", "secret", "url", "email", "numbe
 export const INPUT_MODES = ["none", "text", "decimal", "numeric", "tel", "search", "email", "url"];
 export const BUTTON_KINDS = ["submit", "reset", "button"];
 
-// Where a value may travel. "length" mirrors how many characters were typed and
-// never the characters themselves — the honest default for a password, which
-// otherwise streams through the relay one keystroke at a time.
+// Where a value may travel. "value" is the default for every field: mirroring is
+// the point. "length" sends how many characters were typed and never the
+// characters, for a field an application would rather the relay never saw.
 export const ECHO_MODES = ["value", "length", "none"];
 
 // Navigation keys a phone may press on the TV's behalf. Back (10009) and IME
@@ -135,9 +135,12 @@ export function validateMirrorConfig(config) {
       type,
       label: str(f.label, 60) || f.key,
       secret,
-      // A secret mirrors as a length by default. An application that really
-      // wants the characters on both screens says so per field.
-      echo: pick(ECHO_MODES, f.echo, secret ? "length" : "value"),
+      // Every field mirrors its value, including a secret. A mirror that showed
+      // a row of dots where the password goes is not a mirror, and watching the
+      // characters land is the whole reason to put the form on two screens. A
+      // field that should cross as nothing but its length says so per field —
+      // the relay then never sees the characters at all.
+      echo: pick(ECHO_MODES, f.echo, "value"),
       // Unlike the config path, required does NOT default to true: this schema
       // is derived from somebody's markup, and inventing a requirement the form
       // never had would make the phone refuse to send a form the TV accepts.

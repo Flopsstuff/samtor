@@ -145,9 +145,10 @@ check("an empty option is dropped rather than refusing the whole session", () =>
               options: [{ value: "", label: "only" }] }).skip, true, "nothing usable left");
 });
 
-check("a secret defaults to mirroring its length, and can opt out", () => {
-  eq(derive({ type: "password", name: "pw" }).field.echo, "length", "password");
-  eq(derive({ type: "password", name: "pw", dataEcho: "value" }).field.echo, "value", "data-mirror-echo");
+check("a password mirrors like anything else, and can be told not to", () => {
+  eq(derive({ type: "password", name: "pw" }).field.echo, "value", "password");
+  eq(derive({ type: "password", name: "pw", dataEcho: "length" }).field.echo, "length",
+     'data-mirror-echo="length"');
   eq(derive({ name: "plain" }).field.echo, undefined, "an ordinary field says nothing");
 });
 
