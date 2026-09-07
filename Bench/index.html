@@ -6,7 +6,7 @@
 <style>
   html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;overflow:hidden;
             font:400 22px/1.45 system-ui,-apple-system,Helvetica,sans-serif}
-  /* Four screens; exactly one visible at a time. Switch with showScreen(). */
+  /* Six screens; exactly one visible at a time. Switch with showScreen(). */
   #wrap{padding:56px 80px;height:100%;box-sizing:border-box;display:none;flex-direction:column}
   #menu{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;flex-direction:column;
         align-items:center;justify-content:center;background:#0d1117;z-index:6}
@@ -71,6 +71,39 @@
             word-break:break-all;display:none}
   .step{color:#8b949e;font-size:20px;margin:3px 0}
   .step b{color:#e6edf3}
+  /* Same overlay shape as #pair, and the same reason for the long form of it:
+     Chromium 85 has no `inset` shorthand. */
+  #mirror{position:absolute;left:0;top:0;right:0;bottom:0;background:#0d1117;padding:36px 56px;
+          box-sizing:border-box;display:none;flex-direction:column;z-index:5}
+  #mirror h2{margin:0 0 2px;font-size:34px}
+  #mirrorSub{color:#7d8590;font-size:18px;margin-bottom:16px}
+  #mirrorCols{flex:1;display:flex;gap:44px;align-items:flex-start;min-height:0}
+  #mirrorLeft{flex:0 0 auto;display:flex;flex-direction:column;align-items:center}
+  #mirrorQrBox{background:#fff;padding:12px;border-radius:14px;line-height:0}
+  #mirrorCode{margin-top:10px;font:700 40px/1 ui-monospace,Menlo,monospace;letter-spacing:.06em;color:#fff}
+  #mirrorHost{font-size:20px;color:#4ea3ff;margin-top:4px}
+  #mirrorState{font-size:19px;color:#c9d1d9;margin-top:12px;text-align:center;max-width:360px}
+  #mirrorStats{color:#6e7681;font:500 16px/1.6 ui-monospace,Menlo,monospace;margin-top:8px}
+  /* The fields sit high for the same reason the voice field does: the IME rises
+     from the bottom and covers whatever is under it. */
+  #mirrorRight{flex:1;min-width:0;overflow:hidden}
+  #mirrorForm{display:flex;flex-wrap:wrap;gap:10px 24px}
+  #mirrorForm .f{width:calc(50% - 12px)}
+  #mirrorForm label{display:block;color:#8b949e;font-size:16px;margin:0 0 3px}
+  #mirrorForm input,#mirrorForm select,#mirrorForm textarea{width:100%;box-sizing:border-box;
+      background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:9px;
+      padding:8px 11px;font:500 19px/1.3 ui-monospace,Menlo,monospace}
+  #mirrorForm textarea{resize:none;height:64px}
+  #mirrorForm input[type=checkbox]{width:22px;height:22px}
+  /* The component writes an inline outline for the peer's field, because a class
+     on an element with id-level styling loses on specificity. These two are for
+     state, so they can show at the same time as that outline. */
+  #mirrorForm .mirror-focus{border-color:#4ea3ff;background:#16233d}
+  #mirrorBtns{margin-top:14px;display:flex;gap:12px}
+  #mirrorBtns button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:9px;
+      padding:9px 16px;font-size:18px}
+  #mirrorSkipped{margin-top:14px;color:#6e7681;font:500 15px/1.5 ui-monospace,Menlo,monospace}
+  #mirrorLog{margin-top:10px;color:#8b949e;font:500 15px/1.5 ui-monospace,Menlo,monospace}
   /* The field sits high on purpose: the IME comes up from the bottom, and
      whatever it covers cannot be read while dictating into it. */
   #voice{position:absolute;left:0;top:0;right:0;bottom:0;background:#0d1117;padding:44px 64px;
@@ -142,6 +175,7 @@
   <div class="item sel" data-go="bench"><span>Benchmark<span class="desc">CPU, graphics, memory, codecs — about 40 s</span></span><span>&rsaquo;</span></div>
   <div class="item" data-go="keys"><span>Remote keys<span class="desc">see which keys actually reach the app</span></span><span>&rsaquo;</span></div>
   <div class="item" data-go="pair"><span>Remote setup<span class="desc">fill this app&rsquo;s settings in from a phone or a computer</span></span><span>&rsaquo;</span></div>
+  <div class="item" data-go="mirror"><span>Form mirror<span class="desc">fill this screen&rsquo;s form from a phone, live, both ways</span></span><span>&rsaquo;</span></div>
   <div class="item" data-go="voice"><span>Voice input<span class="desc">does the system keyboard offer a microphone?</span></span><span>&rsaquo;</span></div>
   <div id="menuHint">&uarr;&darr; choose · Enter open · Back exit</div>
 </div>
@@ -174,6 +208,68 @@
     </div>
   </div>
 </div>
+<div id="mirror">
+  <h2>Form mirror</h2>
+  <div id="mirrorSub">&mdash;</div>
+  <div id="mirrorCols">
+    <div id="mirrorLeft">
+      <div id="mirrorQrBox"><canvas id="mirrorQr" width="360" height="360"></canvas></div>
+      <div id="mirrorCode">&mdash;</div>
+      <div id="mirrorHost">&mdash;</div>
+      <div id="mirrorState">&mdash;</div>
+      <div id="mirrorStats"></div>
+    </div>
+    <div id="mirrorRight">
+      <!-- An ordinary form, written the way an application would write one. The
+           component derives everything the phone renders from this markup, so
+           there is no second description of it anywhere. onsubmit returns false
+           because a real submit from a file: origin navigates the widget away
+           with nothing to come back from. -->
+      <form id="mirrorForm" onsubmit="return false">
+        <div class="f"><label for="mAccount">Account ID</label>
+          <input id="mAccount" name="account_id" pattern="[0-9]{4,12}"
+                 title="4 to 12 digits" placeholder="123456"></div>
+        <div class="f"><label for="mUser">Username</label>
+          <input id="mUser" name="username" minlength="3" maxlength="32" required></div>
+        <div class="f"><label for="mPass">Password</label>
+          <input id="mPass" name="password" type="password" minlength="8"></div>
+        <div class="f"><label for="mPort">Port</label>
+          <input id="mPort" name="port" type="number" min="1" max="65535"></div>
+        <div class="f"><label for="mMail">Email</label>
+          <input id="mMail" name="email" type="email"></div>
+        <div class="f"><label for="mHome">Homepage</label>
+          <input id="mHome" name="homepage" type="url" placeholder="https://"></div>
+        <div class="f"><label for="mRegion">Region</label>
+          <select id="mRegion" name="region">
+            <option value="">Choose&hellip;</option>
+            <option value="eu">Europe</option>
+            <option value="us">North America</option>
+            <option value="apac">Asia Pacific</option>
+          </select></div>
+        <div class="f"><label for="mTele">Send diagnostics</label>
+          <input id="mTele" name="telemetry" type="checkbox"></div>
+        <div class="f" style="width:100%"><label for="mKey">API key &mdash; the long one, paste it</label>
+          <textarea id="mKey" name="api_key" data-mirror-secret data-mirror-echo="value"
+                    minlength="16"></textarea></div>
+        <!-- Refused on purpose, one per rule, and the screen lists what and why.
+             A form usually has one or two of these, and a component that ignored
+             them silently would be worse than one that did not work. -->
+        <input type="hidden" name="client">
+        <input type="file" name="upload">
+        <input name="serial" value="fixed" readonly>
+        <input name="legacy" value="off" disabled>
+        <input name="card" autocomplete="cc-number">
+        <div id="mirrorBtns">
+          <button type="submit" name="save">Save</button>
+          <button type="button" name="test">Test connection</button>
+          <button type="reset" name="clear">Reset</button>
+        </div>
+      </form>
+      <div id="mirrorSkipped"></div>
+      <div id="mirrorLog"></div>
+    </div>
+  </div>
+</div>
 <div id="voice">
   <h2>Voice commands</h2>
   <div id="voiceHint">&larr;&rarr; pick the field or the <b>voice</b> button ·
@@ -198,6 +294,7 @@
 <canvas id="gl" width="1920" height="1080"></canvas>
 <script src="qrcode.js"></script>
 <script src="remote-config.js"></script>
+<script src="remote-mirror.js"></script>
 <!-- Gitignored: tells this build which deployment of pairing/ to talk to.
      Absent in a fresh clone, and the pairing screen says so plainly. -->
 <script src="local-config.js"></script>
@@ -670,12 +767,17 @@
     return null;
   }
 
-  function maskIfSecret(key, value) {
-    var f = fieldByKey(key);
-    var secret = f && (f.secret || f.type === "password" || f.type === "secret");
+  // Shared with the mirror screen, so a secret is shown the same way on both and
+  // neither screen's debug hook can print one.
+  function maskValue(secret, value) {
     if (!secret) return value;
     return value.length <= 6 ? "••••••" : value.slice(0, 3) + "…" + value.slice(-2) +
            " (" + value.length + ")";
+  }
+
+  function maskIfSecret(key, value) {
+    var f = fieldByKey(key);
+    return maskValue(!!(f && (f.secret || f.type === "password" || f.type === "secret")), value);
   }
 
   function renderValues(values, into, heading) {
@@ -793,6 +895,193 @@
         window.__PAIR__.values = Object.keys(values).length;
       }
     });
+  }
+
+  // ================== form mirror ==================
+  // The other half of remote setup. That screen asks a phone for values once;
+  // this one puts the form below on a phone and keeps the two in step while both
+  // screens are up, so a long token can be typed on a keyboard while the person
+  // watches the television agree with them.
+  //
+  // Nothing here describes the form twice: the component derives what the phone
+  // renders from the markup above, which is the whole point of it.
+  var mirrorEl   = document.getElementById("mirror"),
+      mirrorForm = document.getElementById("mirrorForm"),
+      mirrorSub  = document.getElementById("mirrorSub"),
+      mirrorCode = document.getElementById("mirrorCode"),
+      mirrorHost = document.getElementById("mirrorHost"),
+      mirrorState = document.getElementById("mirrorState"),
+      mirrorStats = document.getElementById("mirrorStats"),
+      mirrorSkipped = document.getElementById("mirrorSkipped"),
+      mirrorLog  = document.getElementById("mirrorLog"),
+      mirrorQr   = document.getElementById("mirrorQr");
+
+  var mirrorSession = null, mirrorTick = null, mirrorSlot = 0, mirrorInputs = [];
+
+  window.__MIRROR__ = { state: "idle" };
+
+  function mirrorRec(text) {
+    var line = document.createElement("div");
+    line.textContent = text;
+    mirrorLog.insertBefore(line, mirrorLog.firstChild);
+    while (mirrorLog.childNodes.length > 6) mirrorLog.removeChild(mirrorLog.lastChild);
+  }
+
+  function mirrorStop() {
+    if (mirrorTick) { clearInterval(mirrorTick); mirrorTick = null; }
+    if (mirrorSession) { mirrorSession.stop(); mirrorSession = null; }
+  }
+
+  // Bench drives its own selection over the fields with the arrows, and only
+  // Enter hands one to the IME. The component marks the phone's field without
+  // touching DOM focus, so the two highlights coexist.
+  function mirrorPaintSlot() {
+    for (var i = 0; i < mirrorInputs.length; i++) {
+      mirrorInputs[i].style.boxShadow = (i === mirrorSlot) ? "0 0 0 3px #1f6feb" : "none";
+    }
+  }
+
+  function mirrorMove(step) {
+    if (!mirrorInputs.length) return;
+    mirrorSlot = (mirrorSlot + step + mirrorInputs.length) % mirrorInputs.length;
+    mirrorPaintSlot();
+    if (mirrorSession) mirrorSession.focus(mirrorInputs[mirrorSlot].name);
+  }
+
+  function mirrorActivate() {
+    var el = mirrorInputs[mirrorSlot];
+    if (!el) return;
+    if (el.type === "checkbox") { el.checked = !el.checked; mirrorFire(el); return; }
+    // Enter is the only thing that raises the keyboard, and it covers the lower
+    // half of the screen while it is up.
+    try { el.focus(); } catch (x) {}
+  }
+
+  function mirrorFire(el) {
+    try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (x) {}
+  }
+
+  function mirrorBlurField() {
+    try {
+      if (mirrorForm.contains(document.activeElement)) document.activeElement.blur();
+    } catch (x) {}
+  }
+
+  function mirrorStart() {
+    mirrorStop();
+    showScreen("mirror");
+    mirrorCode.textContent = "…";
+    mirrorHost.textContent = PAIR_HOST || "—";
+    mirrorSub.textContent = "opening a session…";
+    mirrorState.textContent = "contacting the service…";
+    mirrorStats.textContent = "";
+    mirrorSkipped.textContent = "";
+    mirrorLog.textContent = "";
+    window.__MIRROR__ = { state: "starting", code: "", peer: false, fields: 0,
+                          skipped: [], focus: null, sent: 0, recv: 0, conflicts: 0,
+                          values: {}, error: "" };
+
+    mirrorInputs = [];
+    var candidates = mirrorForm.querySelectorAll("input,select,textarea");
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (el.disabled || el.readOnly || el.type === "hidden" || el.type === "file") continue;
+      if ((el.getAttribute("autocomplete") || "").indexOf("cc-") === 0) continue;
+      mirrorInputs.push(el);
+    }
+    mirrorSlot = 0;
+    mirrorPaintSlot();
+
+    if (!PAIR_HOST) {
+      mirrorSub.textContent = "not configured";
+      mirrorState.innerHTML = "no <b>local-config.js</b> in this build &mdash; " +
+                              "copy local-config.example.js and set window.PAIR_HOST";
+      window.__MIRROR__.state = "unconfigured";
+      return;
+    }
+
+    mirrorSession = RemoteMirror.start({
+      host: PAIR_HOST,
+      form: mirrorForm,
+      canvas: mirrorQr,
+      app: "Bench",
+      note: "A demonstration of the live mirror. Nothing here is used for anything.",
+
+      onState: function (s) {
+        window.__MIRROR__.state = s.phase;
+        if (s.phase === "waiting") {
+          mirrorSub.textContent = "scan the QR, or open the address and type the code · " +
+                                  "Back returns to the menu";
+          mirrorCode.textContent = s.code;
+          mirrorHost.textContent = s.host;
+          mirrorState.textContent = "waiting for a device";
+          window.__MIRROR__.code = s.code;
+        } else if (s.phase === "peer") {
+          mirrorState.innerHTML = s.verified === false
+            ? "a device is mirroring &mdash; it <b>typed</b> the code rather than scanning it"
+            : "a device is mirroring this form";
+          window.__MIRROR__.peer = true;
+        } else if (s.phase === "mirroring") {
+          window.__MIRROR__.sent = s.sent;
+          window.__MIRROR__.recv = s.recv;
+        } else if (s.phase === "conflict") {
+          window.__MIRROR__.conflicts++;
+          mirrorRec("kept what is being typed here: " + s.key);
+        } else if (s.phase === "gone") {
+          mirrorState.textContent = "the device disconnected · Enter starts a new session";
+          window.__MIRROR__.peer = false;
+        } else if (s.phase === "expired") {
+          mirrorStop();
+          mirrorState.textContent = "the code expired · Enter starts a new session";
+        } else if (s.phase === "error") {
+          mirrorState.textContent = "error: " + s.error;
+          window.__MIRROR__.error = s.error;
+        }
+      },
+
+      onPatch: function (p) {
+        if (p.length !== undefined) {
+          // A secret crosses as a length, never as characters.
+          mirrorRec(p.key + " is " + p.length + " characters (the value stays on the phone)");
+          return;
+        }
+        mirrorRec(p.key + " = " + maskValue(mirrorIsSecret(p.key), p.value));
+      },
+
+      onValues: function (v) {
+        var shown = {};
+        for (var key in v) {
+          if (v.hasOwnProperty(key)) shown[key] = maskValue(mirrorIsSecret(key), v[key]);
+        }
+        window.__MIRROR__.values = shown;
+      },
+
+      onFocus: function (key) { window.__MIRROR__.focus = key; },
+      onAction: function (a) { mirrorRec("the phone pressed " + a.key); },
+      onKey: function (k) { mirrorRec("the phone pressed " + k.key); },
+
+      onSkip: function (s) {
+        var line = document.createElement("div");
+        line.textContent = (s.key || "(unnamed)") + " — " + s.reason;
+        mirrorSkipped.appendChild(line);
+        window.__MIRROR__.skipped.push({ key: s.key, reason: s.reason });
+      }
+    });
+
+    mirrorTick = setInterval(function () {
+      if (!mirrorSession) return;
+      window.__MIRROR__.fields = mirrorSession.keys().length;
+      mirrorStats.textContent = "sent " + mirrorSession.sent() + " · received " +
+                                mirrorSession.recv() + " · " +
+                                mirrorSession.keys().length + " fields mirrored";
+    }, 500);
+  }
+
+  function mirrorIsSecret(key) {
+    if (!mirrorSession) return false;
+    var keys = mirrorSession.keys();
+    for (var i = 0; i < keys.length; i++) if (keys[i].key === key) return keys[i].secret;
+    return false;
   }
 
   // ================== voice input ==================
@@ -1214,7 +1503,7 @@
   // ================== screens ==================
   var menuEl = document.getElementById("menu"),
       wrapEl = document.getElementById("wrap");
-  var screen = "menu";                 // menu | bench | keys | pair | voice
+  var screen = "menu";                 // menu | bench | keys | pair | mirror | voice
   var items = menuEl.querySelectorAll(".item");
   var sel = 0;
 
@@ -1230,8 +1519,10 @@
     keysEl.style.display = (name === "keys") ? "flex" : "none";
     wrapEl.style.display = (name === "bench") ? "flex" : "none";
     pairEl.style.display = (name === "pair")  ? "flex" : "none";
+    mirrorEl.style.display = (name === "mirror") ? "flex" : "none";
     voiceEl.style.display = (name === "voice") ? "flex" : "none";
     if (name !== "pair") pairStop();          // never leave a socket or timer running
+    if (name !== "mirror") { mirrorStop(); mirrorBlurField(); }
     // A field left focused keeps the IME up over whatever screen comes next.
     if (name !== "voice") {
       try { voiceIn.blur(); } catch (x) {}
@@ -1266,6 +1557,12 @@
           voiceIn.blur();
           return;
         }
+        // Same two-stage escape on the mirror: the first Back only leaves the
+        // field, so the keyboard can close without the screen going with it.
+        if (screen === "mirror" && mirrorForm.contains(document.activeElement)) {
+          mirrorBlurField();
+          return;
+        }
         showScreen("menu");
       }
       return;
@@ -1278,6 +1575,7 @@
         var go = items[sel].getAttribute("data-go");
         if (go === "bench") startBench();
         else if (go === "pair") pairStart();
+        else if (go === "mirror") mirrorStart();
         else if (go === "voice") voiceStart();
         else showScreen("keys");
       }
@@ -1285,6 +1583,20 @@
     }
 
     if (screen === "pair") { if (code === 13) pairStart(); return; }
+    if (screen === "mirror") {
+      // The IME closes with Cancel, not Back, so the global 10009 branch never
+      // runs while a field is focused. Either key has to release it.
+      if (code === 65385) { mirrorBlurField(); return; }
+      // Once a field has DOM focus every key belongs to it and the keyboard.
+      if (mirrorForm.contains(document.activeElement)) return;
+      if (code === 38 || code === 37) mirrorMove(-1);
+      else if (code === 40 || code === 39) mirrorMove(1);
+      else if (code === 13) {
+        if (mirrorSession) mirrorActivate();
+        else mirrorStart();                 // after gone or expired
+      }
+      return;
+    }
     if (screen === "keys") { onKey(e); return; }
     if (screen === "voice") {
       // Up always leaves the field and lands on the voice button. A single-line

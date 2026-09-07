@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Form mirror — demo</title>
+<!--
+  The TV side of the mirror, in a desktop browser, so the whole loop can be
+  driven without building a .wgt.
+
+      cd pairing && npx wrangler dev
+      open pairing/demo/mirror.html          (or serve it, either works)
+
+  This is the one place allowed to reference ../client/ rather than copy it: it
+  is not packaged into a widget.
+
+  Two things behave differently here than on the device, and neither is worth
+  "fixing" on the strength of the other. A file: origin sends Origin: null,
+  which the Worker's permissive CORS headers accept, and Chrome treats
+  http://localhost as trustworthy so there is no mixed-content block. On Tizen
+  CORS does not apply at all and the gate is the <access> element in config.xml.
+-->
+<style>
+  body{margin:0;background:#0d1117;color:#e6edf3;padding:28px 34px;
+       font:400 15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:#7d8590;margin:0 0 22px}
+  .cols{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap}
+  .left{flex:0 0 auto}
+  .right{flex:1;min-width:320px}
+  #qrBox{background:#fff;padding:14px;border-radius:14px;line-height:0;width:calc(320px + 28px)}
+  #code{margin-top:12px;font:700 34px/1 ui-monospace,Menlo,monospace;letter-spacing:.06em}
+  #host{color:#4ea3ff;margin-top:6px}
+  #state{margin-top:14px;color:#c9d1d9;min-height:22px}
+  #stats{color:#6e7681;font:500 13px/1.7 ui-monospace,Menlo,monospace;margin-top:6px}
+  fieldset{border:1px solid #30363d;border-radius:12px;margin:0 0 16px;padding:14px 16px}
+  legend{color:#8b949e;padding:0 6px}
+  label{display:block;color:#8b949e;font-size:13px;margin:12px 0 5px}
+  input,select,textarea{width:100%;max-width:420px;background:#161b22;color:#e6edf3;
+       border:1px solid #30363d;border-radius:9px;padding:10px 12px;font-size:15px;
+       font-family:ui-monospace,Menlo,monospace;box-sizing:border-box}
+  input[type=checkbox],input[type=radio]{width:18px;height:18px}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:#4ea3ff}
+  button{background:#1f6feb;color:#fff;border:0;border-radius:9px;padding:11px 18px;
+         font-size:15px;font-weight:600;cursor:pointer;margin-right:8px}
+  button.ghost{background:#21262d;color:#c9d1d9;font-weight:500}
+  #hostRow{display:flex;gap:8px;margin-bottom:18px;max-width:520px}
+  #hostIn{flex:1;max-width:none}
+  #skipped{margin-top:16px;color:#8b949e;font:500 13px/1.6 ui-monospace,Menlo,monospace}
+  #skipped div{border-top:1px solid #21262d;padding-top:5px;margin-top:5px}
+  #log{margin-top:14px;color:#6e7681;font:500 13px/1.6 ui-monospace,Menlo,monospace;
+       max-height:180px;overflow:auto}
+  .mirror-focus{background:#16233d}
+</style>
+</head>
+<body>
+<h1>Form mirror</h1>
+<p class="sub">This page stands in for the television. Scan the QR, or open the link it
+  encodes in another window, and the form below is mirrored live.</p>
+
+<div id="hostRow">
+  <input id="hostIn" placeholder="http://localhost:8787">
+  <button id="start">Start</button>
+  <button id="stop" class="ghost">Stop</button>
+</div>
+
+<div class="cols">
+  <div class="left">
+    <div id="qrBox"><canvas id="qr" width="348" height="348"></canvas></div>
+    <div id="code">&mdash;</div>
+    <div id="host">&mdash;</div>
+    <div id="state">idle</div>
+    <div id="stats"></div>
+  </div>
+
+  <div class="right">
+    <!-- One form, exercising the whole vocabulary, plus every refusal. The same
+         form is on the Bench screen: the point of the component is that one form
+         and one client work on a television and on a laptop unchanged. -->
+    <form id="signin" onsubmit="return false">
+      <fieldset>
+        <legend>Account</legend>
+        <label for="account_id">Account ID</label>
+        <input id="account_id" name="account_id" pattern="[0-9]{4,12}"
+               title="4 to 12 digits" placeholder="123456">
+
+        <label for="username">Username</label>
+        <input id="username" name="username" minlength="3" maxlength="32" required>
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" minlength="8">
+
+        <label for="api_key">API key &mdash; the long one, paste it</label>
+        <textarea id="api_key" name="api_key" data-mirror-secret data-mirror-echo="value"
+                  minlength="16" rows="3"></textarea>
+
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email">
+
+        <label for="homepage">Homepage</label>
+        <input id="homepage" name="homepage" type="url" placeholder="https://">
+
+        <label for="port">Port</label>
+        <input id="port" name="port" type="number" min="1" max="65535">
+
+        <label for="region">Region</label>
+        <select id="region" name="region">
+          <option value="">Choose&hellip;</option>
+          <option value="eu">Europe</option>
+          <option value="us">North America</option>
+          <option value="apac">Asia Pacific</option>
+        </select>
+      </fieldset>
+
+      <fieldset>
+        <legend>Plan</legend>
+        <label><input type="radio" name="plan" value="free" checked> Free</label>
+        <label><input type="radio" name="plan" value="pro"> Pro</label>
+        <label><input type="checkbox" id="telemetry" name="telemetry"> Send diagnostics</label>
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" maxlength="200" rows="2"></textarea>
+      </fieldset>
+
+      <fieldset>
+        <legend>Refused on purpose &mdash; each one for a different reason</legend>
+        <input type="hidden" name="client">
+        <input type="file" name="upload">
+        <input name="serial" value="fixed" readonly>
+        <input name="legacy" value="off" disabled>
+        <input name="secret_note" data-mirror="off" placeholder="data-mirror=&quot;off&quot;">
+        <input name="card" autocomplete="cc-number" placeholder="autocomplete=cc-number">
+        <select name="tags" multiple size="2"><option value="a">A</option><option value="b">B</option></select>
+      </fieldset>
+
+      <button type="submit">Save</button>
+      <button type="button" id="test">Test connection</button>
+      <button type="reset" class="ghost">Reset</button>
+    </form>
+
+    <div id="skipped"></div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script src="../client/qrcode.js"></script>
+<script src="../client/remote-mirror.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var hostIn = document.getElementById("hostIn"),
+      codeEl = document.getElementById("code"),
+      hostEl = document.getElementById("host"),
+      stateEl = document.getElementById("state"),
+      statsEl = document.getElementById("stats"),
+      skippedEl = document.getElementById("skipped"),
+      logEl = document.getElementById("log"),
+      qr = document.getElementById("qr"),
+      form = document.getElementById("signin");
+
+  var mirror = null, tick = null;
+
+  try { hostIn.value = localStorage.getItem("mirror.host") || "http://localhost:8787"; }
+  catch (e) { hostIn.value = "http://localhost:8787"; }
+
+  function log(text) {
+    var line = document.createElement("div");
+    line.textContent = new Date().toLocaleTimeString() + "  " + text;
+    logEl.insertBefore(line, logEl.firstChild);
+  }
+
+  function stop() {
+    if (tick) { clearInterval(tick); tick = null; }
+    if (mirror) { mirror.stop(); mirror = null; log("stopped"); }
+    stateEl.textContent = "idle";
+  }
+
+  function start() {
+    stop();
+    try { localStorage.setItem("mirror.host", hostIn.value); } catch (e) {}
+    codeEl.textContent = "…";
+    skippedEl.textContent = "";
+
+    mirror = RemoteMirror.start({
+      host: hostIn.value,
+      form: form,
+      canvas: qr,
+      app: "Mirror demo",
+      note: "Everything you type here appears on the other screen as you type it.",
+
+      onState: function (s) {
+        stateEl.textContent = s.phase + (s.error ? " — " + s.error : "") +
+                              (s.key ? " (" + s.key + ")" : "");
+        if (s.phase === "waiting") {
+          codeEl.textContent = s.code;
+          hostEl.textContent = s.host;
+          log("waiting, expires in " + s.expiresIn + "s");
+        }
+        if (s.phase === "peer") log("a device is mirroring" + (s.verified === false ? " (typed the code)" : ""));
+        if (s.phase === "gone") log("the device went away");
+        if (s.phase === "conflict") log("kept the local edit to " + s.key);
+      },
+      onPatch: function (p) {
+        if (p.length !== undefined) {
+          // A secret never crosses the relay; only how long it is does.
+          document.getElementById(p.key).placeholder = p.length + " characters typed";
+          log("<- " + p.key + " is " + p.length + " characters (the value stays on the phone)");
+          return;
+        }
+        log("<- " + p.key + " = " + (p.value.length > 24 ? p.value.slice(0, 24) + "…" : p.value));
+      },
+      onFocus: function (key) { if (key) log("the phone moved to " + key); },
+      onAction: function (a) { log("the phone pressed " + a.key); },
+      onKey: function (k) { log("the phone pressed key " + k.key); },
+      onSkip: function (s) {
+        var line = document.createElement("div");
+        line.textContent = (s.key || "(unnamed)") + " — " + s.reason;
+        skippedEl.appendChild(line);
+      }
+    });
+
+    tick = setInterval(function () {
+      if (!mirror) return;
+      statsEl.textContent = "sent " + mirror.sent() + " · received " + mirror.recv() +
+                            " · mirroring " + mirror.keys().length + " fields";
+    }, 500);
+  }
+
+  document.getElementById("start").addEventListener("click", start);
+  document.getElementById("stop").addEventListener("click", stop);
+  document.getElementById("test").addEventListener("click", function () { log("Test connection clicked here"); });
+})();
+</script>
+</body>
+</html>

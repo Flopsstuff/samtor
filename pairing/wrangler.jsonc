@@ -9,12 +9,22 @@
   // Without PAIR_HOSTNAME the Worker simply deploys to its workers.dev subdomain.
 
   "durable_objects": {
-    "bindings": [{ "name": "SESSIONS", "class_name": "PairSession" }]
+    "bindings": [
+      { "name": "SESSIONS", "class_name": "PairSession" },
+      { "name": "MIRRORS", "class_name": "MirrorSession" }
+    ]
   },
 
   // SQLite is the only Durable Object backend available on the Workers Free plan,
   // and the recommended one on any plan.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PairSession"] }],
+  //
+  // A new class needs its own tag. Tags are applied once, in order, and the
+  // runtime remembers which it has seen — adding MirrorSession to v1 after v1
+  // has shipped would deploy cleanly and never create the class.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PairSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["MirrorSession"] }
+  ],
 
   // Rate limits. See src/limits.js for what each key is and why the ceilings sit
   // where they do. Trailing comments are not allowed in this file: with-route.mjs

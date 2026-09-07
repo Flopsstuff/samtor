@@ -1,8 +1,10 @@
 import { PairSession } from "./session.js";
+import { MirrorSession } from "./mirror.js";
 import { PAGE } from "./page.js";
+import { mirrorRoute, handleMirror } from "./mirror-router.js";
 import { allow, clientKey } from "./limits.js";
 
-export { PairSession };
+export { PairSession, MirrorSession };
 
 // Crockford-style: I, L, O and U are gone, so nothing on a TV screen is ambiguous.
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -27,6 +29,21 @@ export default {
       // Each of these claims a Durable Object, writes storage and arms an alarm.
       if (!(await allow(env.RL_CREATE, caller))) return tooMany();
       return createSession(request, env, url);
+    }
+
+    // The live form mirror is a second service on the same Worker, so that an
+    // application needs one host and one <access> element for both. Its routes
+    // are metered here rather than inside it: the limiter has to run before a
+    // stub is touched, and every binding this Worker uses has to be visible in
+    // this file — see the comment at the top of mirror-router.js.
+    const mirror = mirrorRoute(path, request.method);
+    if (mirror) {
+      if (mirror.kind === "create" && !(await allow(env.RL_CREATE, caller))) return tooMany();
+      if (mirror.code) {
+        if (!(await allow(env.RL_LOOKUP, caller))) return tooMany();
+        if (!(await allow(env.RL_CODE, mirror.code))) return tooMany();
+      }
+      return handleMirror(request, env, url, mirror);
     }
 
     const m = path.match(/^\/api\/session\/([0-9A-Za-z-]{4,16})(?:\/(socket|meta|submit))?$/);

@@ -13,7 +13,7 @@ Replace every example address below with your own monitor. Documentation example
 | Directory | Display name | App ID | Description |
 |---|---|---|---|
 | `DinoJump/` | DinoJump | `DinoJump00.DinoJump` | Canvas 2D runner controlled with the remote's arrow keys |
-| `Bench/` | Bench | `BenchApp00.Bench` | CPU, graphics, memory, and codec benchmark; shows remote button events; remote setup demo; voice-command demo |
+| `Bench/` | Bench | `BenchApp00.Bench` | CPU, graphics, memory, and codec benchmark; shows remote button events; remote setup and live form mirror demos; voice-command demo |
 | `Doom/` | Doom | `DoomApp000.Doom` | DOOM with sound (doomgeneric + SDL2_mixer); engine assets are built locally |
 
 The Tizen **package** ID must contain exactly 10 alphanumeric characters. A readable ID
@@ -24,8 +24,9 @@ The Tizen **package** ID must contain exactly 10 alphanumeric characters. A read
 ```
 DinoJump/  Bench/  Doom/     standalone Tizen web app projects
   Doom/build.sh              downloads verified upstream sources/assets and builds Doom locally
-pairing/                     remote configuration service — see pairing/README.md
-  client/                    the piece applications copy in
+pairing/                     remote configuration and live form mirror — see pairing/README.md
+  client/                    the pieces applications copy in
+  demo/                      the mirror driven from a desktop browser, no .wgt needed
 tools/                       remote control, Developer Mode / sdb helpers, shared config
   config.py                  reads .env and environment variables
   tvctl.py                    pairing and remote-control CLI
@@ -276,6 +277,28 @@ RemoteConfig.start({
 The form is built from that description, with masked and hidden fields, length
 bounds, patterns and fixed choices. `Bench` has a working example under **Remote
 setup**, and the whole thing is documented in [pairing/README.md](pairing/README.md).
+
+The same service has a second mode for a form that is **already on the screen**. Point
+the mirror client at it, and that form appears on a phone; from then on every keystroke,
+every move between fields and every button press crosses in both directions while both
+screens are up, so a long token can be typed on a real keyboard while the person watches
+the television agree with them.
+
+```js
+RemoteMirror.start({
+  host: window.PAIR_HOST,
+  form: document.getElementById("signin"),
+  canvas: document.getElementById("qr")
+});
+```
+
+Nothing else is described: what the phone renders comes from the form's own markup —
+types, labels, `required`, `maxlength`, `pattern`, the options in a select, the buttons.
+A password mirrors as **how long it is** rather than as what it is, and the fields a
+mirror cannot carry (a file input, a hidden one, a card number) are reported instead of
+dropped in silence. Both modes take the same eight-character code or the same QR, and a
+code given to the wrong one offers the door rather than a dead end. `Bench` has this
+under **Form mirror**.
 
 Two things an application must add to `config.xml`: the `internet` privilege and an
 `<access>` element for the host. Without `<access>` every `fetch` fails while

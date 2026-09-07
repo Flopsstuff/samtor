@@ -36,6 +36,26 @@ jobs:
         working-directory: pairing
         run: node ../tests/test_pairing_limits.mjs
 
+      # Pure logic, so it needs no runtime: the mirror's schema, the purity of
+      # its op reducer, and the ceilings the session object imports rather than
+      # restates.
+      - name: Check the mirror schema
+        working-directory: pairing
+        run: node ../tests/test_mirror_schema.mjs
+
+      # The rules that turn a form into a schema decide what a phone renders and
+      # what the relay accepts, and every one of them would otherwise only be
+      # observable on a television.
+      - name: Check the mirror client
+        working-directory: pairing
+        run: node ../tests/test_mirror_client.mjs
+
+      # Same template-literal hazard as the setup page: the source and what a
+      # browser receives are not the same text.
+      - name: Check the rendered mirror page
+        working-directory: pairing
+        run: node ../tests/test_mirror_page.mjs
+
       - name: Build the deploy config
         working-directory: pairing
         env:

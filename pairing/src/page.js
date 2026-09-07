@@ -63,6 +63,7 @@ export const PAGE = `<!DOCTYPE html>
            spellcheck="false" placeholder="XXXX-XXXX" maxlength="9">
     <button id="go">Continue</button>
     <div class="msg bad" id="codeErr"></div>
+    <button id="toMirror" class="ghost" style="display:none">Open the live mirror instead</button>
   </section>
 
   <section id="s-paste">
@@ -303,7 +304,9 @@ export const PAGE = `<!DOCTYPE html>
       .then(function (r) { return r.json(); })
       .then(function (m) {
         if (m.error) throw new Error(explain(m.error));
-        if (m.state === "unknown") throw new Error("That code is not valid any more.");
+        // The two modes share one code shape, so a code from the other one is
+        // not a dead end: ask, and offer the door.
+        if (m.state === "unknown") return elsewhere(c);
         session = c;
         var cfg = m.config;
         var app = (cfg && cfg.app) || "";
@@ -322,6 +325,24 @@ export const PAGE = `<!DOCTYPE html>
           var first = document.querySelector("#form input, #form textarea");
           if (first) first.focus();
         }, 60);
+      });
+  }
+
+  function elsewhere(c) {
+    return fetch("/api/mirror/session/" + c + "/meta")
+      .then(function (r) { return r.json(); })
+      .then(function (other) {
+        if (other && other.state && other.state !== "unknown") {
+          say($("codeErr"), "That code belongs to a live mirror, not a setup form.");
+          var button = $("toMirror");
+          button.style.display = "block";
+          button.onclick = function () { location.href = "/m#" + c; };
+          throw new Error("");
+        }
+        throw new Error("That code is not valid any more.");
+      })
+      .catch(function (e) {
+        throw new Error(e && e.message ? e.message : "That code is not valid any more.");
       });
   }
 
@@ -369,8 +390,10 @@ export const PAGE = `<!DOCTYPE html>
     var c = norm($("code").value);
     if (!ALPHABET.test(c)) { say($("codeErr"), "That is not a valid 8-character code."); return; }
     say($("codeErr"), "");
+    $("toMirror").style.display = "none";
     $("go").disabled = true;
-    openSession(c).catch(function (e) { say($("codeErr"), e.message); })
+    // An empty message means elsewhere() has already put a better one up.
+    openSession(c).catch(function (e) { if (e && e.message) say($("codeErr"), e.message); })
                   .then(function () { $("go").disabled = false; });
   });
 
@@ -412,7 +435,7 @@ export const PAGE = `<!DOCTYPE html>
   if (ALPHABET.test(code)) {
     openSession(code).catch(function (e) {
       $("code").value = code.slice(0, 4) + "-" + code.slice(4);
-      say($("codeErr"), e.message);
+      if (e && e.message) say($("codeErr"), e.message);
       show("s-code");
     });
   }

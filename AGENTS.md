@@ -36,12 +36,15 @@ when the monitor rotates the token, so it is runtime state rather than configura
 
 ### Tests
 
-Four independent suites; there is no aggregate runner.
+Six independent suites; there is no aggregate runner.
 
 ```bash
 .venv/bin/python -m unittest tests.test_tvctl -v   # tooling (run from the project root)
 node tests/test_pairing_page.mjs                   # renders and parses the Worker's page
 node tests/test_pairing_limits.mjs                 # rate limit policy, and code/config drift
+node tests/test_mirror_schema.mjs                  # the mirror's schema, reducer and ceilings
+node tests/test_mirror_client.mjs                  # DOM-to-schema rules, with no DOM
+node tests/test_mirror_page.mjs                    # renders and parses the mirror page
 bash tests/test_public_doom.sh                     # pinned checksums + nothing GPL is tracked
 ```
 
@@ -126,6 +129,15 @@ verification URI and QR are derived from the request's `Host`. An app declares w
 (`config: { app, fields: [...] }`), the phone renders the form, values return over the open
 socket and can be resent. See `pairing/README.md` for the full HTTP/socket API and schema.
 
+The same Worker carries a second, live mode: `src/mirror*.js` plus `client/remote-mirror.js`
+mirror a form the application **already has on screen** onto a phone, both directions, at a
+100 ms cadence. It has its own routes (`/m`, `/api/mirror/*`), its own Durable Object and its
+own client; it shares only the code alphabet and the three rate limit bindings. `index.js`
+meters those routes and delegates — **do not read `env.RL_*` inside `mirror-router.js`**,
+because `tests/test_pairing_limits.mjs` scrapes `index.js` alone and a binding it cannot see
+is a limit nobody enforces. What the phone renders is derived from the DOM by
+`describeForm()`, so a mirrored form is described exactly once, in the markup.
+
 **`tools/`** — `config.py` (env resolution), `tvctl.py` (WebSocket remote over `wss://:8002`),
 plus two Developer Mode / sdb waiters.
 
@@ -164,6 +176,11 @@ These were measured, not assumed, and explain otherwise-odd decisions:
 - Comments in this codebase explain *why*, usually recording a failure that was paid for
   once (see the `canvas` CSS rule in `Bench/index.html` that once hid the pairing QR). Match
   that register rather than narrating what the code does.
+- Four browser facts the mirror client encodes, each of which only shows up on the device:
+  `el.maxLength` answers `524288` when the attribute is absent; HTML's `pattern` is
+  implicitly anchored while this schema's is not; `setSelectionRange` throws on `type=email`
+  and `type=number`; and **`keyCode` cannot be set through the `KeyboardEvent` constructor**,
+  so it is defined on the instance or every relayed key does nothing.
 - **Never push without an explicit, per-push instruction**, and never force-push without
   one. Approval for one push does not carry over to the next commit, amend, or rebase.
   Cursor enforces the force-push half of this through `.cursor/hooks.json`; other tools
