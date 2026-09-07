@@ -89,11 +89,33 @@ check("a password manager cannot fill a mirrored secret", () => {
   }
 });
 
-check("the page offers the other mode instead of a dead end", () => {
-  // The two modes share one code shape, so a code from the other one has to lead
-  // somewhere. Both directions exist; this is the mirror's half.
-  if (script.indexOf("/api/session/") < 0) throw new Error("the page never asks the other mode");
-  if (script.indexOf('location.href = "/t#"') < 0) throw new Error("the page never offers the door");
+check("every entry point resolves a code the same way", () => {
+  // /#code, /t#code and /m#code have to behave identically, so which mode a code
+  // belongs to is answered by the relay once rather than by each page probing
+  // the other. A page that asked the other mode's meta directly would be back to
+  // two half-rules that can disagree.
+  const setup = readFileSync(new URL("../pairing/src/page.js", import.meta.url), "utf8");
+  const router = readFileSync(new URL("../pairing/src/index.js", import.meta.url), "utf8");
+
+  // The router matches it with a regex, so the slashes are escaped there.
+  if (router.indexOf("api\\/resolve") < 0) throw new Error("the router has no resolver");
+  if (router.indexOf("resolveCode") < 0) throw new Error("the router does not answer the question");
+
+  for (const [name, src, goes] of [
+    ["the mirror page", script, 'location.replace("/t"'],
+    ["the setup page", setup, 'location.replace("/m"'],
+  ]) {
+    if (src.indexOf('fetch("/api/resolve/"') < 0) throw new Error(name + " does not use the resolver");
+    if (src.indexOf(goes) < 0) throw new Error(name + " does not hand a foreign code over");
+    // replace(), so Back does not land on the dead end that was just avoided.
+    if (/location\.href = "\/[tm]#"/.test(src)) throw new Error(name + " pushes a history entry");
+    // A scanned QR carries the token after the code, and the other mode needs it.
+    if (src.indexOf("fragmentFor") < 0) throw new Error(name + " drops the fragment");
+    // The old shape: each page asking the other mode's meta for itself.
+    if (/fetch\("\/api\/(mirror\/)?session\/" \+ c \+ "\/meta"\)[\s\S]{0,400}elsewhere/.test(src)) {
+      throw new Error(name + " still probes the other mode itself");
+    }
+  }
 });
 
 check("an explanation already on screen is not overwritten by the generic one", () => {
@@ -121,13 +143,13 @@ check("the TV client parses too", () => {
   new Function(readFileSync(new URL("../pairing/client/remote-mirror.js", import.meta.url), "utf8"));
 });
 
-check("the setup page still parses with its half of the bridge", () => {
-  // The only change to the existing path, so it is checked from here as well as
-  // by its own suite.
+check("neither page keeps a button for something with one answer", () => {
+  // The bridge started as a message and a button. A code works in exactly one of
+  // the two modes, so there was never a choice to offer — only a click to make.
   const setup = readFileSync(new URL("../pairing/src/page.js", import.meta.url), "utf8");
-  if (setup.indexOf('location.href = "/m#"') < 0) {
-    throw new Error("the setup page does not offer the mirror");
-  }
+  if (setup.indexOf("function enter(") < 0) throw new Error("the setup page has no bridge");
+  if (/toMirror/.test(setup)) throw new Error("the setup page still has the redundant button");
+  if (/toPair/.test(MIRROR_PAGE)) throw new Error("the mirror page still has the redundant button");
 });
 
 console.log(failures ? "\n" + failures + " check(s) failed" : "\nall checks passed");

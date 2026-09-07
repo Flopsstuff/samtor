@@ -92,8 +92,16 @@ Two modes share this Worker, one host and one `<access>` element. **Setup** asks
 another device for values once and hands them over. **Mirror** puts a form that is
 already on the screen onto a phone and keeps the two in step for as long as both
 screens are up. They share the code alphabet and nothing else — separate routes,
-separate objects, separate clients — and a code from one mode offers the door to the
-other rather than answering "not valid".
+separate objects, separate clients.
+
+**Every entry point behaves the same.** `/#code`, `/t#code` and `/m#code`, and a code
+typed into either page, all ask `GET /api/resolve/{code}` first and then either open
+the form they are already on or hand the code to the mode it belongs to, keeping the
+whole fragment so a scanned token travels with it. A code that is live in neither
+answers plainly that it is not valid. Which mode a code belongs to is a question about
+the service, so the service answers it once — a page probing the other mode for itself
+was two half-rules that could disagree, and did: the version that shipped put a button
+on screen under the sentence "That code is not valid any more."
 
 ## HTTP API
 
@@ -105,6 +113,7 @@ other rather than answering "not valid".
 | `GET /api/session/{code}` | Polling fallback: state, delivery count, last payload |
 | `GET /api/session/{code}/meta` | What the filling device may know: state, TTL, config, TV public key. Never the submit token |
 | `POST /api/session/{code}/submit` | One-shot path for a client that cannot hold a socket. Body `{ submit_token?, payload }` |
+| `GET /api/resolve/{code}` | Which mode a code is live in: `{mode: "setup" \| "mirror" \| "none"}`. Both pages ask this first |
 | `GET /` and `GET /t` | The page the other device opens |
 | `GET /health` | Liveness |
 

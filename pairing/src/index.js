@@ -46,6 +46,19 @@ export default {
       return handleMirror(request, env, url, mirror);
     }
 
+    // One code shape serves both modes, so which mode a code belongs to is a
+    // question about the service rather than about either page. Answering it
+    // here means every entry point behaves the same and asks once: /#code, /t#code
+    // and /m#code all resolve, then either stay or hand over.
+    const resolving = path.match(/^\/api\/resolve\/([0-9A-Za-z-]{4,16})$/);
+    if (resolving) {
+      const code = normalize(resolving[1]);
+      if (!CODE_RE.test(code)) return json({ error: "bad_code" }, 400);
+      if (!(await allow(env.RL_LOOKUP, caller))) return tooMany();
+      if (!(await allow(env.RL_CODE, code))) return tooMany();
+      return json(await resolveCode(env, code));
+    }
+
     const m = path.match(/^\/api\/session\/([0-9A-Za-z-]{4,16})(?:\/(socket|meta|submit))?$/);
     if (m) {
       const code = normalize(m[1]);
@@ -73,6 +86,23 @@ export default {
     return json({ error: "not_found" }, 404);
   },
 };
+
+/**
+ * Which mode, if any, a code is live in. Setup is asked first because it is the
+ * cheaper object and the older path; a code exists in at most one of the two, so
+ * the order only decides which question is asked twice on a miss.
+ */
+async function resolveCode(env, code) {
+  const setup = await env.SESSIONS.get(env.SESSIONS.idFromName(code)).meta();
+  if (setup && setup.state && setup.state !== "unknown") {
+    return { mode: "setup", state: setup.state, path: "/t" };
+  }
+  const mirror = await env.MIRRORS.get(env.MIRRORS.idFromName(code)).meta();
+  if (mirror && mirror.state && mirror.state !== "unknown") {
+    return { mode: "mirror", state: mirror.state, path: "/m" };
+  }
+  return { mode: "none" };
+}
 
 // ---------------------------------------------------------------------------
 // Configuration schema

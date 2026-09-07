@@ -63,7 +63,6 @@ export const PAGE = `<!DOCTYPE html>
            spellcheck="false" placeholder="XXXX-XXXX" maxlength="9">
     <button id="go">Continue</button>
     <div class="msg bad" id="codeErr"></div>
-    <button id="toMirror" class="ghost" style="display:none">Open the live mirror instead</button>
   </section>
 
   <section id="s-paste">
@@ -304,9 +303,7 @@ export const PAGE = `<!DOCTYPE html>
       .then(function (r) { return r.json(); })
       .then(function (m) {
         if (m.error) throw new Error(explain(m.error));
-        // The two modes share one code shape, so a code from the other one is
-        // not a dead end: ask, and offer the door.
-        if (m.state === "unknown") return elsewhere(c);
+        if (m.state === "unknown") throw new Error("That code is not valid any more.");
         session = c;
         var cfg = m.config;
         var app = (cfg && cfg.app) || "";
@@ -338,16 +335,26 @@ export const PAGE = `<!DOCTYPE html>
     return e;
   }
 
-  function elsewhere(c) {
-    return fetch("/api/mirror/session/" + c + "/meta")
+  // A scanned QR carries the token after the code, and the other mode needs it
+  // too, so the whole fragment travels. A typed code has no fragment to carry.
+  function fragmentFor(c) {
+    return (location.hash && norm(parts[0]) === c) ? location.hash : "#" + c;
+  }
+
+  // The relay answers which mode a code belongs to, so this page asks once and
+  // then either opens the form or hands the code over. /#code, /t#code and
+  // /m#code all behave the same because they all go through this.
+  function enter(c) {
+    return fetch("/api/resolve/" + c)
       .then(function (r) { return r.json(); })
-      .catch(function () { return null; })       // unreachable relay reads as absent
-      .then(function (other) {
-        if (other && other.state && other.state !== "unknown") {
-          say($("codeErr"), "That code belongs to a live mirror, not a setup form.");
-          var button = $("toMirror");
-          button.style.display = "block";
-          button.onclick = function () { location.href = "/m#" + c; };
+      .then(function (m) {
+        if (m.error) throw new Error(explain(m.error));
+        if (m.mode === "setup") return openSession(c);
+        if (m.mode === "mirror") {
+          // Nothing to decide: that code only works in one place, so go there.
+          // replace() rather than href, so Back does not lead back here.
+          say($("codeErr"), "Opening the live mirror\\u2026", "ok");
+          location.replace("/m" + fragmentFor(c));
           throw handled();
         }
         throw new Error("That code is not valid any more.");
@@ -398,11 +405,10 @@ export const PAGE = `<!DOCTYPE html>
     var c = norm($("code").value);
     if (!ALPHABET.test(c)) { say($("codeErr"), "That is not a valid 8-character code."); return; }
     say($("codeErr"), "");
-    $("toMirror").style.display = "none";
     $("go").disabled = true;
-    // elsewhere() may already have put a better message up; do not paper over it.
-    openSession(c).catch(function (e) { if (e && !e.handled) say($("codeErr"), e.message); })
-                  .then(function () { $("go").disabled = false; });
+    // A handled error has already said something more useful on screen.
+    enter(c).catch(function (e) { if (e && !e.handled) say($("codeErr"), e.message); })
+            .then(function () { $("go").disabled = false; });
   });
 
   $("code").addEventListener("input", function () {
@@ -441,7 +447,7 @@ export const PAGE = `<!DOCTYPE html>
   }
 
   if (ALPHABET.test(code)) {
-    openSession(code).catch(function (e) {
+    enter(code).catch(function (e) {
       $("code").value = code.slice(0, 4) + "-" + code.slice(4);
       if (e && !e.handled) say($("codeErr"), e.message);
       show("s-code");
