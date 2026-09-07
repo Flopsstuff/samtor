@@ -126,7 +126,7 @@ export const MIRROR_PAGE = `<!DOCTYPE html>
   var code = norm(parts[0]);
   var token = parts[1] || "";
 
-  var ws = null, closing = false, sent = 0, seq = 0, rev = 0;
+  var ws = null, closing = false, linked = false, sent = 0, seq = 0, rev = 0;
   var fields = [], byKey = {}, actions = [];
   var pending = null, timer = null, keepAlive = null;
   var applying = 0, lastSent = {}, lastApplied = {}, composing = {};
@@ -470,6 +470,7 @@ export const MIRROR_PAGE = `<!DOCTYPE html>
       try { m = JSON.parse(ev.data); } catch (e) { return; }
 
       if (m.type === "hello") {
+        linked = true;
         rev = m.rev || 0;
         var cfg = m.config;
         var app = (cfg && cfg.app) || "";
@@ -508,6 +509,24 @@ export const MIRROR_PAGE = `<!DOCTYPE html>
       if (closing) {
         $("doneText").textContent = "Disconnected after " + sent + " updates.";
         show("s-done");
+        return;
+      }
+      // A socket that closed before "hello" never got in at all, and a browser
+      // does not hand the page the status that says why — a refused upgrade and a
+      // dropped connection look identical here. So ask, and say which it was:
+      // otherwise the code box just sits there having apparently done nothing,
+      // which is what happens when somebody else already holds the session.
+      if (!linked) {
+        fetch("/api/mirror/session/" + c + "/meta")
+          .then(function (r) { return r.json(); })
+          .catch(function () { return null; })
+          .then(function (m) {
+            if (!m || m.state === "unknown") say($("codeErr"), explain("no_such_session"));
+            else if (m.phone_online) say($("codeErr"), explain("already_linked"));
+            else say($("codeErr"), "Could not reach the TV. Reload the page to try again.");
+            show("s-code");
+            $("code").value = c.slice(0, 4) + "-" + c.slice(4);
+          });
         return;
       }
       setLink("off", "disconnected \\u2014 reload the page to link again");
