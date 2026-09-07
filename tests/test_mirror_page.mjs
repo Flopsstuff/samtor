@@ -96,6 +96,27 @@ check("the page offers the other mode instead of a dead end", () => {
   if (script.indexOf('location.href = "/t#"') < 0) throw new Error("the page never offers the door");
 });
 
+check("an explanation already on screen is not overwritten by the generic one", () => {
+  // This shipped once and reached a television: the bridge put its own message
+  // up and threw an error carrying no text as a "handled" signal, and a catch
+  // that read "no message" as "no explanation" wrote the dead-end wording back
+  // over it. The button appeared next to the sentence it was meant to replace.
+  // Both pages carry the same bridge, so both are checked here.
+  const setup = readFileSync(new URL("../pairing/src/page.js", import.meta.url), "utf8");
+  for (const [name, src] of [["the mirror page", script], ["the setup page", setup]]) {
+    if (!/\.handled\b/.test(src)) throw new Error(name + " has no handled flag");
+    if (/throw new Error\(""\)/.test(src)) {
+      throw new Error(name + " still signals 'handled' with an empty message");
+    }
+    if (/e\.message \? e\.message :/.test(src)) {
+      throw new Error(name + " still substitutes wording for a message-less error");
+    }
+    if (!/if \(e && !e\.handled\)/.test(src)) {
+      throw new Error(name + " does not check the flag before saying something generic");
+    }
+  }
+});
+
 check("the TV client parses too", () => {
   new Function(readFileSync(new URL("../pairing/client/remote-mirror.js", import.meta.url), "utf8"));
 });

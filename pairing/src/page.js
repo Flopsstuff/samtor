@@ -328,21 +328,29 @@ export const PAGE = `<!DOCTYPE html>
       });
   }
 
+  // An error this page has already explained on screen. Carrying a flag rather
+  // than an empty message: a catch that treated "no message" as "no explanation"
+  // put the generic wording back over the useful one, which is precisely the
+  // dead end the bridge exists to remove.
+  function handled() {
+    var e = new Error("handled");
+    e.handled = true;
+    return e;
+  }
+
   function elsewhere(c) {
     return fetch("/api/mirror/session/" + c + "/meta")
       .then(function (r) { return r.json(); })
+      .catch(function () { return null; })       // unreachable relay reads as absent
       .then(function (other) {
         if (other && other.state && other.state !== "unknown") {
           say($("codeErr"), "That code belongs to a live mirror, not a setup form.");
           var button = $("toMirror");
           button.style.display = "block";
           button.onclick = function () { location.href = "/m#" + c; };
-          throw new Error("");
+          throw handled();
         }
         throw new Error("That code is not valid any more.");
-      })
-      .catch(function (e) {
-        throw new Error(e && e.message ? e.message : "That code is not valid any more.");
       });
   }
 
@@ -392,8 +400,8 @@ export const PAGE = `<!DOCTYPE html>
     say($("codeErr"), "");
     $("toMirror").style.display = "none";
     $("go").disabled = true;
-    // An empty message means elsewhere() has already put a better one up.
-    openSession(c).catch(function (e) { if (e && e.message) say($("codeErr"), e.message); })
+    // elsewhere() may already have put a better message up; do not paper over it.
+    openSession(c).catch(function (e) { if (e && !e.handled) say($("codeErr"), e.message); })
                   .then(function () { $("go").disabled = false; });
   });
 
@@ -435,7 +443,7 @@ export const PAGE = `<!DOCTYPE html>
   if (ALPHABET.test(code)) {
     openSession(code).catch(function (e) {
       $("code").value = code.slice(0, 4) + "-" + code.slice(4);
-      if (e && e.message) say($("codeErr"), e.message);
+      if (e && !e.handled) say($("codeErr"), e.message);
       show("s-code");
     });
   }
